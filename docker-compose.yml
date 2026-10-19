@@ -1,0 +1,50 @@
+# 로컬 개발용 인프라 (PostgreSQL + RabbitMQ). Spring Boot 앱은 호스트에서 실행한다.
+# 실행: cp .env.example .env  →  .env 비밀번호 수정  →  docker compose up -d
+services:
+  postgres:
+    # PostgreSQL 16 + pgvector 확장 파일이 들어 있는 이미지 (rag MCP의 벡터 검색용)
+    image: pgvector/pgvector:pg16
+    container_name: supplysync-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD}
+      # init 스크립트(docker/postgres/init)가 읽는 값: 앱 전용 계정, rag MCP 읽기 전용 계정
+      APP_DB_USER: ${DB_USER}
+      APP_DB_PASSWORD: ${DB_PASSWORD}
+      RAG_DB_USER: ${RAG_DB_USER:-}
+      RAG_DB_PASSWORD: ${RAG_DB_PASSWORD:-}
+      TZ: UTC
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: supplysync-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    ports:
+      - "${RABBITMQ_AMQP_PORT:-5672}:5672"
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmqdata:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  rabbitmqdata:
