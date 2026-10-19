@@ -1,0 +1,6 @@
+# 테스트용 보충 설정. DB는 Testcontainers가 @ServiceConnection으로 주입한다.
+spring:
+  rabbitmq:
+    password: test
+app:
+  internal-api-key: test-internal-key
