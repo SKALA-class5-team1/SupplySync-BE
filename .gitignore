@@ -41,3 +41,6 @@ out/
 .env
 
 .DS_Store
+
+# RFQ 업로드 원문 파일 저장 위치 (데모 시드가 여기에 원문을 배치한다)
+rfq-files/

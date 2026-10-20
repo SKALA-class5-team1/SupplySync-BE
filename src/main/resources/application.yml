@@ -20,6 +20,13 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  jackson:
+    # API JSON은 데이터셋 정답지(05_expected)와 같은 snake_case로 통일한다 (Agent·MCP·프론트가 같은 필드명을 쓴다)
+    property-naming-strategy: SNAKE_CASE
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_AMQP_PORT:5672}
@@ -47,3 +54,5 @@ management:
 app:
   # /internal/** 호출 시 X-Internal-Api-Key 헤더와 비교할 값 (검증 로직은 인증 단계에서 추가)
   internal-api-key: ${INTERNAL_API_KEY}
+  # 업로드된 RFQ 원문 파일을 두는 디렉터리. rfqs.file_path는 이 디렉터리 기준 상대 경로이다
+  rfq-files-dir: ${RFQ_FILES_DIR:./rfq-files}
