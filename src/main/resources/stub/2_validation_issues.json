@@ -1,0 +1,78 @@
+{
+  "$comment": "validate_rules 노드의 정답. HIGH가 1개 이상이면 human_confirm(interrupt)으로 분기.",
+  "route": "human_confirm",
+  "issues": [
+    {
+      "id": "ISS-01",
+      "type": "이상값",
+      "field": "spec.flow",
+      "severity": "HIGH",
+      "found": "22 L/h (= 0.37 L/min)",
+      "reason": "정상 범위 5~60 L/min을 크게 벗어남. 단위 오기 의심",
+      "suggestion": "22 L/min으로 가정",
+      "ref": "design_standard.md §2"
+    },
+    {
+      "id": "ISS-02",
+      "type": "누락",
+      "field": "spec.connector",
+      "severity": "MED",
+      "found": "TBD",
+      "suggestion": "표준 4핀 커넥터로 가정, 고객 확인",
+      "ref": "design_standard.md §7"
+    },
+    {
+      "id": "ISS-03",
+      "type": "누락",
+      "field": "spec.coolant",
+      "severity": "MED",
+      "found": "미기재",
+      "suggestion": "에틸렌글리콜 50% 혼합액으로 가정, 고객 확인",
+      "ref": "design_standard.md §7"
+    },
+    {
+      "id": "ISS-04",
+      "type": "이상값",
+      "field": "volume.lifetime_volume",
+      "severity": "MED",
+      "found": "900,000",
+      "reason": "120,000 × 6년 = 720,000과 불일치",
+      "suggestion": "고객 확인 (공급 기간 7.5년인지, 총 물량 오기인지)"
+    },
+    {
+      "id": "ISS-05",
+      "type": "이상값",
+      "field": "schedule.ppap_date",
+      "severity": "MED",
+      "found": "PPAP 2027-10-15 > SOP 2027-09-01",
+      "reason": "양산 승인이 양산 시작보다 늦음",
+      "suggestion": "고객 확인"
+    },
+    {
+      "id": "ISS-06",
+      "type": "계약 리스크",
+      "field": "contract.warranty",
+      "severity": "MED",
+      "found": "5년 / 150,000 km",
+      "reason": "사내 한도 3년 / 100,000 km 초과",
+      "suggestion": "한도 내 조정 협의 또는 품질본부장 승인 + 단가 반영",
+      "ref": "sales_policy.md 제12조"
+    },
+    {
+      "id": "ISS-07",
+      "type": "계약 리스크",
+      "field": "contract.penalty_cap_pct",
+      "severity": "MED",
+      "found": "상한 없음",
+      "reason": "사내 상한 계약금액 10%",
+      "suggestion": "배상 상한 10% 설정 협의",
+      "ref": "sales_policy.md 제13조"
+    }
+  ],
+  "passed_checks": [
+    "연간 가격 인하 3% (한도 3% 이내, 제11조)",
+    "결제 조건 60일 (한도 90일 이내, 제15조)",
+    "단종 통지 12개월 (한도 이내, 제14조)",
+    "전압 9~16V 정상 범위"
+  ]
+}

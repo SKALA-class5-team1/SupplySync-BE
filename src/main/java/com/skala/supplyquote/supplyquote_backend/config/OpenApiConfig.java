@@ -1,11 +1,15 @@
 package com.skala.supplyquote.supplyquote_backend.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import io.swagger.v3.core.jackson.ModelResolver;
 import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
 import org.springdoc.core.models.GroupedOpenApi;
+import org.springdoc.core.providers.ObjectMapperProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -32,6 +36,9 @@ public class OpenApiConfig {
                                 - **화면용 API** (`/api/**`): Frontend가 호출한다. JWT 인증.
                                 - **내부 업무 API** (`/internal/**`): business MCP와 Agent가 호출한다. `X-Internal-Api-Key` 헤더.
 
+                                JSON 필드명은 **snake_case**이다. 데이터셋 정답지(05_expected)와 같은 이름을 쓴다.
+                                모든 쓰기는 이 API(Spring)를 거친다. MCP·Agent는 DB에 직접 쓰지 않는다.
+
                                 `[STUB]`로 시작하는 오퍼레이션은 계약 확정용 고정 응답이다. 구현되면 표시가 사라진다."""))
                 .components(new Components()
                         .addSecuritySchemes(BEARER, new SecurityScheme()
@@ -39,6 +46,18 @@ public class OpenApiConfig {
                         .addSecuritySchemes(INTERNAL_KEY, new SecurityScheme()
                                 .type(SecurityScheme.Type.APIKEY).in(SecurityScheme.In.HEADER)
                                 .name("X-Internal-Api-Key")));
+    }
+
+    /**
+     * 런타임 JSON은 snake_case(spring.jackson.property-naming-strategy)인데, springdoc은 스키마를 Jackson 2로 만들기 때문에
+     * 이 설정이 반영되지 않아 문서에는 camelCase가 나온다. 문서가 계약이므로 스키마 생성에도 같은 규칙을 적용한다.
+     * 문서 JSON 자체를 만드는 매퍼(objectMapperProvider)의 키가 바뀌지 않도록 **복사본**만 바꾼다.
+     */
+    @Bean
+    ModelResolver snakeCaseModelResolver(ObjectMapperProvider objectMapperProvider) {
+        ObjectMapper mapper = objectMapperProvider.jsonMapper().copy();
+        mapper.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
+        return new ModelResolver(mapper);
     }
 
     @Bean

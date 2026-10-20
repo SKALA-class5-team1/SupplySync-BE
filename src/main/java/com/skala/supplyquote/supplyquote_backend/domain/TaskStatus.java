@@ -4,14 +4,13 @@ package com.skala.supplyquote.supplyquote_backend.domain;
 public enum TaskStatus {
     QUEUED,
     RUNNING,
-    /** 요구사항 누락·모순: 영업 담당자 확인 후 재개 */
+    /** HIGH 이슈(예: 유량 단위 오기)로 담당자의 가정 확인을 기다린다 */
     NEEDS_CLARIFICATION,
+    /** 견적 초안과 최종 검토가 끝나 담당자 승인을 기다린다 */
     WAITING_APPROVAL,
-    /** 승인 후 최신 재고·가격·납기로 다시 검증하는 중 */
+    /** 승인 후 최신 재고·가격으로 다시 검증하는 중 */
     REVALIDATING,
     REGISTERING,
-    /** 견적은 등록됐고 구매요청만 실패한 경우처럼 일부만 성공 */
-    PARTIALLY_REGISTERED,
     /** 가능한 대안이 없어 담당자 검토 대기 */
     ON_HOLD,
     DONE,
