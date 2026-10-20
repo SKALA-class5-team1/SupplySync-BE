@@ -1,0 +1,43 @@
+sequenceDiagram
+    autonumber
+    participant AG as Agent 서버
+    participant BM as business MCP
+    participant RM as rag MCP
+    participant SP as Spring /internal
+    participant DB as PostgreSQL
+    participant SSE as SseHub
+    actor 담당자
+    participant V as Vue
+
+    Note over AG,V: SG1 · RFQ 분석 + 사양 적합성
+    AG->>BM: get_rfq_content(rfqNumber)
+    BM->>SP: GET /internal/rfqs/{no}/content (내부 키)
+    SP-->>BM: RFQ 원문
+    AG->>SP: PATCH /internal/rfqs/{no} (추출한 수량 · 일정 · 목표 단가)
+    AG->>RM: search_docs("유량 단위 오기")
+    RM->>DB: SELECT ... ORDER BY embedding 거리 (rag_reader)
+    AG->>SP: PUT /internal/rfq-reviews (issues, status = WAITING)
+    AG->>SP: POST /internal/tasks/{id}/events (CLARIFICATION_REQUIRED)
+    SP->>DB: ai_tasks → NEEDS_CLARIFICATION
+    SP->>SSE: 이벤트 중계
+    SSE-->>V: CLARIFICATION_REQUIRED (이슈 7건)
+    담당자->>V: 유량 22 L/min 확인
+    V->>SP: POST /api/ai/tasks/{id}/confirmation
+    SP->>DB: assumptions · confirmed_by 저장, ai_tasks → RUNNING
+    SP-->>AG: analysis.resume → POST /runs/{threadId}/resume
+
+    Note over AG,V: SG1 계속 → SG2 · 공급 가능성 + 대안 분석
+    AG->>BM: get_models / get_bom(EWP-12-B, OPT-HT + OPT-IP9K)
+    BM->>SP: GET /internal/models/... /bom?options=
+    AG->>BM: get_inventory(P-MCU-G1) / get_substitutes
+    BM->>SP: GET /internal/parts/{id}/inventory
+    AG->>SP: PUT /internal/rfq-reviews (shortages, alternatives, recommended_alt)
+    AG->>SP: POST /internal/tasks/{id}/events (STEP_END)
+    SP->>SSE: 진행 이벤트 중계
+
+    Note over AG,V: SG3 · 견적 + 최종 검토
+    AG->>SP: POST /internal/quotes (DRAFT, parts_cost, margin, checks)
+    SP->>DB: quotes INSERT (quote_id 서버 생성)
+    AG->>SP: POST /internal/tasks/{id}/events (APPROVAL_REQUIRED)
+    SP->>DB: ai_tasks → WAITING_APPROVAL
+    SSE-->>V: APPROVAL_REQUIRED

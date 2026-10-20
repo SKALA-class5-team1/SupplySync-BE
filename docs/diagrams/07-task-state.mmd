@@ -1,0 +1,19 @@
+stateDiagram-v2
+    [*] --> QUEUED : RFQ 접수 (커밋 후 발행)
+    QUEUED --> RUNNING : 소비자가 Agent 호출 성공
+    RUNNING --> NEEDS_CLARIFICATION : HIGH 이슈 (담당자 확인 필요)
+    NEEDS_CLARIFICATION --> RUNNING : 가정 확인 → 재개
+    RUNNING --> WAITING_APPROVAL : 견적 초안 + 최종 검토 완료
+    RUNNING --> ON_HOLD : 가능한 대안 없음
+    WAITING_APPROVAL --> REVALIDATING : 담당자 승인
+    WAITING_APPROVAL --> RUNNING : 반려 → 해당 단계로 복귀
+    REVALIDATING --> WAITING_APPROVAL : 조건 변경 → 재계산 · 재승인
+    REVALIDATING --> REGISTERING : 변경 없음
+    REGISTERING --> DONE : 견적 등록 완료
+    ON_HOLD --> RUNNING : 담당자 검토 후 재개
+    QUEUED --> FAILED : 재시도 소진 (DLQ)
+    RUNNING --> FAILED : Agent 실패
+    REVALIDATING --> FAILED
+    REGISTERING --> FAILED
+    DONE --> [*]
+    FAILED --> [*]

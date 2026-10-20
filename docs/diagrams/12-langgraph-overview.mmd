@@ -1,0 +1,8 @@
+flowchart LR
+    start(["RFQ 접수"]) --> SG1
+    SG1["<b>SG1 · RFQ 분석 + 사양 적합성</b><br/>parse_rfq → validate_rules<br/>(HIGH 이슈면 담당자 확인)<br/>→ match_spec → check_contract"]
+    SG2["<b>SG2 · 공급 가능성 + 대안</b><br/>expand_bom → check_supply<br/>충족: 기본안 확정<br/>미충족: 입고 대기 · 분할 납품<br/>대체 부품 · 신규 발주"]
+    SG3["<b>SG3 · 견적 + 최종 검토</b><br/>calc_cost → draft_quote<br/>→ validate_quote<br/>(규정 · 마진 · 수치 · 양식)"]
+    SG4["<b>SG4 · 승인 + 재검증 + 등록</b><br/>human_approval → revalidate<br/>→ register"]
+    SG1 --> SG2 --> SG3 --> SG4 --> fin(["완료"])
+    SG4 -.->|"반려 · 조건 변경"| SG3

@@ -1,0 +1,25 @@
+flowchart TB
+    user(["고객 / 영업 담당자"]) -->|HTTPS| fe["Vue 3 :80"]
+    fe -->|"REST · SSE"| be
+
+    subgraph net["docker network (내부망)"]
+        be["<b>Spring Boot :8080</b><br/>인증 · RFQ 접수 · 상태 관리<br/>견적 승인 · 등록 · SSE 중계<br/>/internal/** 내부 API"]
+        ag["<b>Agent 서버 FastAPI :8000</b><br/>LangGraph · Harness"]
+        bm["business MCP :9101"]
+        rm["rag MCP :9102"]
+        mq[("RabbitMQ :5672")]
+        pg[("PostgreSQL 16 + pgvector :5432")]
+    end
+
+    llm[("외부 LLM API")]
+
+    be <-->|"AMQP 발행 · 소비"| mq
+    be <-->|JDBC| pg
+    be -->|"HTTP: 실행 · 재개 · 임베딩"| ag
+    ag -->|"진행 이벤트 · 결과 저장 (제안)"| be
+    ag -->|"MCP /mcp"| bm
+    ag -->|"MCP /mcp"| rm
+    bm -->|"HTTP /internal/**"| be
+    rm -->|"SQL 읽기 전용"| pg
+    ag -.->|checkpointer| pg
+    ag -->|HTTPS| llm

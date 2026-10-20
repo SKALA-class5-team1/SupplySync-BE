@@ -1,0 +1,84 @@
+classDiagram
+    direction LR
+    class Company {
+        Long companyId
+        String name
+        CompanyType type
+    }
+    class User {
+        Long userId
+        String loginId
+        String passwordHash
+        UserType userType
+        boolean active
+    }
+    class Rfq {
+        Long rfqId
+        String rfqNumber
+        String filePath
+        RfqStatus status
+        Integer eau
+        Integer sampleQty
+        LocalDate sampleDueDate
+        LocalDate sopDate
+        Integer targetPriceKrw
+    }
+    class RfqReview {
+        Long reviewId
+        String rfqNumber
+        String threadId
+        ReviewStatus status
+        String selectedModel
+        List~String~ options
+        String fitType
+        Json issues
+        Json assumptions
+        Json shortages
+        Json alternatives
+        String recommendedAlt
+    }
+    class Quote {
+        String quoteId
+        Long reviewId
+        QuoteStatus status
+        Integer unitPriceKrw
+        Integer partsCostKrw
+        BigDecimal marginPct
+        Json priceByYear
+        Json conditions
+        Json checks
+        String rejectReason
+    }
+    class AiTask {
+        UUID taskId
+        String rfqNumber
+        String threadId
+        UUID requestId
+        TaskStatus status
+        String currentStep
+        String failureReason
+    }
+    class Model
+    class Option
+    class Part
+    class Inventory
+    class PartSubstitute
+    class DocChunk {
+        String chunkId
+        EmbeddingStatus embeddingStatus
+        String contentHash
+    }
+
+    Company "1" --> "*" User : 소속
+    Company "1" --> "*" Rfq : 고객사
+    User "1" --> "*" Rfq : 업로드
+    Rfq "1" --> "*" AiTask : 분석 실행
+    Rfq "1" ..> "*" RfqReview : rfqNumber (논리)
+    RfqReview "1" --> "*" Quote : 견적
+    User "1" --> "*" Quote : 승인자
+    Model "*" -- "*" Option : 적용 가능
+    Model "1" --> "*" Part : BOM
+    Part "1" --> "1" Inventory
+    Part "1" --> "*" PartSubstitute : 대체
+    PartSubstitute ..> DocChunk : 근거 청크
+    RfqReview ..> Model : 선정 모델

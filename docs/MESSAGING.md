@@ -38,6 +38,8 @@ Agent ──POST /internal/analysis-results──▶ Spring: 저장 후 analysis
 | `analysis.request.dlq` | queue, durable | 재시도를 모두 소진한 요청 |
 | `analysis.result.q` | queue, durable | 바인딩 `analysis.completed`, `analysis.failed` |
 | `analysis.result.dlq` | queue, durable | 처리 못 한 결과 이벤트 |
+| `document.embed.q` | queue, durable | 바인딩 `document.embed.requested`. 실패 시 DLX로 |
+| `document.embed.dlq` | queue, durable | 임베딩을 끝내지 못한 요청. 해당 청크는 `embedding_status = FAILED` |
 
 ## 메시지 봉투
 
@@ -132,6 +134,22 @@ Agent ──POST /internal/analysis-results──▶ Spring: 저장 후 analysis
 | `kind` | string | `CLARIFICATION`(요구 확인 후), `APPROVED`(승인 후: 재검증과 등록), `REJECTED`(반려 후: 해당 단계로 복귀) |
 
 사람이 입력한 값(가정 값, 승인 의견)은 메시지에 싣지 않고, 소비자가 DB(`approvals`, 확인된 가정)에서 읽는다.
+
+### `document.embed.requested`
+
+문서 청크(`doc_chunks`)를 임베딩하도록 요청한다. 시드(`03_doc_chunks.sql`)가 청크를 `PENDING`으로 넣고, 이 메시지가 임베딩을 시작시킨다.
+
+- 생산자: 시드 적재 직후, 문서가 바뀌었을 때(`content_hash` 변경), 재색인 요청 API
+- 소비자: Spring `EmbeddingService`. PENDING(또는 `content_hash`가 바뀐) 청크를 배치로 모아 AI 서버 `POST /embeddings`(bge-m3)로 보내고, 받은 벡터를 저장한 뒤 `embedding_status = DONE`, `embedding_model`, `embedded_at`을 기록한다.
+
+| payload 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `chunkIds` | string[] | 대상 청크. **비어 있으면 PENDING 청크 전체** |
+
+- 청크 내용은 메시지에 싣지 않고 소비자가 DB에서 읽는다.
+- 응답 벡터의 **차원이 1024가 아니면 저장하지 않고 실패**로 처리한다 (`doc_chunks.embedding`이 `vector(1024)`).
+- 같은 `content_hash`의 청크는 다시 임베딩하지 않는다 (멱등).
+- 재시도 3회 후에도 실패하면 DLQ로 보내고 청크를 `FAILED`로 표시한다.
 
 ### `analysis.completed`
 

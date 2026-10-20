@@ -1,0 +1,3 @@
+{ "flowchart": { "wrappingWidth": 460, "htmlLabels": true, "nodeSpacing": 40, "rankSpacing": 50 },
+  "sequence": { "wrap": true, "width": 190, "messageFontSize": 14, "noteFontSize": 14 },
+  "themeVariables": { "fontSize": "15px" } }

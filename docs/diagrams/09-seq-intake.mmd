@@ -1,0 +1,31 @@
+sequenceDiagram
+    autonumber
+    actor 고객
+    participant V as Vue
+    participant C as RfqController
+    participant RS as RfqService
+    participant DB as PostgreSQL
+    participant P as AnalysisProducer
+    participant MQ as RabbitMQ
+    participant CO as AnalysisConsumer
+    participant AG as Agent 서버
+
+    고객->>V: RFQ 파일 업로드 (rfqNumber)
+    V->>C: POST /api/rfqs (multipart, JWT)
+    C->>RS: receive(file, rfqNumber, user)
+    RS->>RS: 권한 확인 (CUSTOMER) · 파일 저장
+    RS->>DB: TX: rfqs(RECEIVED) + ai_tasks(QUEUED) 저장
+    DB-->>RS: 커밋
+    RS->>P: 커밋 후 발행
+    P->>MQ: analysis.requested (persistent · confirm · mandatory)
+    RS-->>C: taskId
+    C-->>V: 202 {rfqId, rfqNumber, taskId}
+    V->>C: GET /api/ai/tasks/{taskId}/stream (SSE 연결)
+    MQ->>CO: 메시지 전달 (Unacked)
+    CO->>DB: messageId 중복 확인 (processed_messages)
+    CO->>DB: UPDATE ai_tasks SET RUNNING WHERE status = QUEUED
+    CO->>DB: UPDATE rfqs SET IN_REVIEW
+    CO->>AG: POST /runs {taskId, threadId, rfqNumber}
+    AG-->>CO: 202 접수
+    CO->>MQ: ack
+    Note over CO,AG: 실패 시 3회 재시도, 소진되면 DLQ로 격리

@@ -1,0 +1,88 @@
+classDiagram
+    direction LR
+    class RfqController {
+        +upload(file, rfqNumber) 202
+        +list() / get(id)
+        +analysis(id)
+    }
+    class AiTaskController {
+        +status(taskId)
+        +stream(taskId) SSE
+        +confirm(taskId, assumptions)
+        +approve(taskId, quoteId, decision)
+    }
+    class InternalController {
+        +rfq / catalog / supply 조회
+        +putReview() upsert
+        +createQuote() / register()
+        +postEvent()
+    }
+    class RfqService {
+        +receive(file, rfqNumber, user)
+        +findForUser(user)
+        +fillExtracted(rfqNumber, fields)
+    }
+    class TaskService {
+        +create(rfq) AiTask
+        +transition(taskId, from, to) boolean
+        +recoverStuckQueued()
+    }
+    class ReviewService {
+        +upsert(rfqNumber, threadId, sections)
+        +confirm(taskId, assumptions, user)
+    }
+    class QuoteService {
+        +createDraft(reviewId, data) Quote
+        +approve(quoteId, user)
+        +reject(quoteId, reason, user)
+        +register(quoteId) 멱등
+        +viewFor(user, quote)
+    }
+    class CatalogService {
+        +models() / bomFor(modelId, options)
+        +part / inventory / substitutes
+    }
+    class EmbeddingService {
+        +indexPending()
+        +save(chunkId, vector, model)
+    }
+    class AgentClient {
+        +run(taskId, threadId, rfqNumber)
+        +resume(threadId, payload)
+        +embed(texts)
+    }
+    class SseHub {
+        +subscribe(taskId)
+        +send(taskId, event)
+    }
+    class AnalysisProducer {
+        +publishRequested(task)
+        +publishResume(task, kind)
+    }
+    class AnalysisConsumer {
+        +onMessage(envelope)
+    }
+    class DlqConsumer {
+        +onDead(message)
+    }
+
+    RfqController --> RfqService
+    RfqController --> ReviewService
+    RfqController --> QuoteService
+    AiTaskController --> TaskService
+    AiTaskController --> ReviewService
+    AiTaskController --> QuoteService
+    AiTaskController --> SseHub
+    InternalController --> RfqService
+    InternalController --> CatalogService
+    InternalController --> ReviewService
+    InternalController --> QuoteService
+    InternalController --> TaskService
+    RfqService --> TaskService
+    TaskService --> AnalysisProducer
+    AnalysisConsumer --> TaskService
+    AnalysisConsumer --> AgentClient
+    DlqConsumer --> TaskService
+    DlqConsumer --> SseHub
+    EmbeddingService --> AgentClient
+    QuoteService --> TaskService

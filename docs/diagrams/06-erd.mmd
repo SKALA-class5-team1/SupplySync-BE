@@ -1,0 +1,127 @@
+erDiagram
+    companies ||--o{ users : "소속"
+    companies ||--o{ rfqs : "고객사"
+    users ||--o{ rfqs : "업로드"
+    users ||--o{ rfq_reviews : "가정 확인"
+    users ||--o{ quotes : "승인"
+    users ||--o{ ai_tasks : "요청"
+    rfqs ||--o{ ai_tasks : "분석 실행"
+    rfqs ||..o{ rfq_reviews : "rfq_number (논리 연결)"
+    rfq_reviews ||--o{ quotes : "견적 초안"
+    models ||--o{ quotes : "견적 모델"
+    models ||--o{ rfq_reviews : "선정 모델"
+    models ||--o{ model_options : ""
+    options ||--o{ model_options : ""
+    models ||--o{ bom : ""
+    parts ||--o{ bom : ""
+    parts ||--|| inventory : ""
+    parts ||--o{ options : "replaces / uses"
+    parts ||--o{ part_substitutes : "원래 / 대체"
+    doc_chunks ||..o{ part_substitutes : "ref_chunk_id (논리)"
+
+    companies {
+        bigint company_id PK
+        varchar name UK
+        varchar company_type "CUSTOMER SUPPLIER"
+    }
+    users {
+        bigint user_id PK
+        varchar login_id UK
+        varchar password_hash
+        bigint company_id FK
+        varchar user_type "CUSTOMER MANAGER"
+    }
+    rfqs {
+        bigint rfq_id PK
+        varchar rfq_number UK
+        bigint customer_company_id FK
+        bigint uploaded_by FK
+        varchar file_path
+        varchar status "RECEIVED IN_REVIEW QUOTED"
+        int eau
+        int sample_qty
+        date sample_due_date
+    }
+    ai_tasks {
+        uuid task_id PK
+        varchar rfq_number FK
+        varchar thread_id UK
+        uuid request_id UK
+        varchar status
+        varchar current_step
+    }
+    rfq_reviews {
+        bigint review_id PK
+        varchar rfq_number
+        varchar thread_id
+        varchar status "RUNNING WAITING DONE"
+        varchar selected_model FK
+        jsonb issues
+        jsonb assumptions
+        jsonb shortages
+        jsonb alternatives
+        varchar recommended_alt
+    }
+    quotes {
+        varchar quote_id PK
+        bigint review_id FK
+        int unit_price_krw
+        int parts_cost_krw
+        numeric margin_pct
+        jsonb price_by_year
+        varchar status "DRAFT APPROVED REJECTED REGISTERED"
+        bigint approved_by FK
+    }
+    models {
+        varchar model_id PK
+        numeric flow_lpm
+        int base_price_krw
+    }
+    options {
+        varchar option_code PK
+        int add_price_krw
+        varchar replaces_part_id FK
+        varchar uses_part_id FK
+    }
+    model_options {
+        varchar model_id PK
+        varchar option_code PK
+    }
+    parts {
+        varchar part_id PK
+        varchar supplier
+        int unit_cost_krw
+        int lead_time_days
+        boolean is_critical
+    }
+    bom {
+        varchar model_id PK
+        varchar part_id PK
+        int qty_per_unit
+    }
+    inventory {
+        varchar part_id PK
+        int on_hand
+        int allocated
+        int incoming_qty
+        date incoming_date
+    }
+    part_substitutes {
+        varchar part_id PK
+        varchar substitute_part_id PK
+        int validation_days
+        boolean pin_compatible
+        varchar ref_chunk_id
+    }
+    doc_chunks {
+        varchar chunk_id PK
+        varchar doc_type
+        text content
+        vector embedding "1024차원 bge-m3"
+        varchar embedding_status "PENDING DONE FAILED"
+        varchar content_hash
+    }
+    processed_messages {
+        uuid message_id PK
+        varchar consumer PK
+    }

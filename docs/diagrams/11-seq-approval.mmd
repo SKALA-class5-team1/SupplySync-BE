@@ -1,0 +1,46 @@
+sequenceDiagram
+    autonumber
+    actor 담당자
+    participant V as Vue
+    participant C as AiTaskController
+    participant QS as QuoteService
+    participant DB as PostgreSQL
+    participant MQ as RabbitMQ
+    participant CO as AnalysisConsumer
+    participant AG as Agent 서버
+    participant SP as Spring /internal
+    participant SSE as SseHub
+
+    담당자->>V: 견적 검토 후 승인 / 반려
+    V->>C: POST /api/ai/tasks/{id}/approval {quoteId, decision, reason}
+    C->>C: JWT 역할 확인 (MANAGER)
+    C->>QS: approve(quoteId) 또는 reject(quoteId, reason)
+
+    alt 승인
+        QS->>DB: UPDATE quotes SET APPROVED WHERE status = DRAFT
+        QS->>DB: UPDATE ai_tasks SET REVALIDATING WHERE status = WAITING_APPROVAL
+        Note over QS,DB: 영향 행 0건이면 409 (이미 처리됨)
+        QS->>MQ: analysis.resume (kind = APPROVED)
+        C-->>V: 202
+        MQ->>CO: 전달
+        CO->>AG: POST /runs/{threadId}/resume
+        AG->>SP: 최신 재고 · 가격 재조회 (business MCP)
+        alt 조건 변경
+            AG->>SP: POST /internal/quotes (새 DRAFT)
+            SP->>SSE: APPROVAL_REQUIRED (재승인)
+        else 변경 없음
+            AG->>SP: POST /internal/quotes/{id}/register
+            SP->>DB: UPDATE quotes SET REGISTERED WHERE status = APPROVED
+            SP->>DB: rfqs → QUOTED, ai_tasks → DONE
+            Note over SP,DB: 이미 REGISTERED면 200 ALREADY_PROCESSED
+            SP->>SSE: DONE
+        end
+    else 반려
+        QS->>DB: UPDATE quotes SET REJECTED, reject_reason
+        QS->>DB: UPDATE ai_tasks SET RUNNING
+        QS->>MQ: analysis.resume (kind = REJECTED, returnTo)
+        C-->>V: 202
+        MQ->>CO: 전달
+        CO->>AG: resume → 지정 단계로 복귀 (견적 재작성 등)
+    end
+    SSE-->>V: 완료 이벤트

@@ -1,0 +1,45 @@
+flowchart TB
+    subgraph pc["사용자 PC"]
+        browser["브라우저 (Vue 3 앱)"]
+    end
+
+    subgraph dn["docker network · Trust Boundary"]
+        subgraph pub["공개 tier (포트 공개)"]
+            frontend["frontend<br/>nginx :80"]
+            backend["<b>backend</b><br/>Spring Boot :8080"]
+        end
+        subgraph ai["내부 AI tier"]
+            agent["agent<br/>FastAPI :8000"]
+            bmcp["business_mcp<br/>FastMCP :9101"]
+            rmcp["rag_mcp<br/>FastMCP :9102"]
+        end
+        subgraph data["내부 Data tier"]
+            postgres[("postgres<br/>pgvector/pgvector:pg16 :5432")]
+            rabbit[("rabbitmq<br/>3.13-management :5672")]
+        end
+    end
+
+    subgraph ext["외부 서비스"]
+        llm["LLM API"]
+        smith["LangSmith (trace)"]
+    end
+
+    vol1[/"볼륨: pgdata"/]
+    vol2[/"볼륨: rabbitmqdata"/]
+    vol3[/"볼륨: rfq-files (RFQ 원문 파일)"/]
+
+    browser -->|":80"| frontend
+    browser -->|":8080 /api/** · SSE"| backend
+    backend --> postgres
+    backend --> rabbit
+    backend --> agent
+    agent --> bmcp
+    agent --> rmcp
+    bmcp -->|"/internal/**"| backend
+    rmcp --> postgres
+    agent --> postgres
+    agent --> llm
+    agent --> smith
+    postgres --- vol1
+    rabbit --- vol2
+    backend --- vol3

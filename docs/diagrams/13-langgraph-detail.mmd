@@ -1,0 +1,39 @@
+flowchart TD
+    start(["RFQ 접수 · 분석 시작"]) --> p1
+
+    subgraph sg1["SG1 · RFQ 분석 + 사양 적합성"]
+        p1["parse_rfq<br/>요구사항 추출"] --> p2["validate_rules<br/>누락 · 이상값 검증"]
+        p2 -->|"HIGH 이슈"| p3{{"human_confirm<br/>담당자 가정 확인"}}
+        p3 --> p4
+        p2 -->|"HIGH 없음"| p4["match_spec<br/>제품 · 옵션 선정"]
+        p4 --> p5["check_contract<br/>계약 한도 검토"]
+    end
+
+    p5 --> s1
+
+    subgraph sg2["SG2 · 공급 가능성 + 대안 분석"]
+        s1["expand_bom<br/>옵션 적용 BOM 전개"] --> s2["check_supply<br/>가용 재고 · 조달 리드타임"]
+        s2 -->|"납기 · 재고 충족"| s3["기본안 확정<br/>표준 부품 구성 유지"]
+        s2 -->|"미충족"| s4["alternatives<br/>입고 대기 · 분할 납품<br/>대체 부품 · 신규 발주"]
+        s4 --> s5["대안 비교 · 추천"]
+    end
+
+    s3 --> q1
+    s5 --> q1
+
+    subgraph sg3["SG3 · 견적 + 최종 검토"]
+        q1["calc_cost<br/>원가 · 마진 · 연도별 단가"] --> q2["draft_quote<br/>기본안 · 대안 견적"]
+        q2 --> q3["validate_quote<br/>규정 · 마진 · 수치 · 양식"]
+        q3 -->|"검증 실패"| q1
+    end
+
+    q3 -->|"통과"| a1
+
+    subgraph sg4["SG4 · 승인 + 재검증 + 등록"]
+        a1{{"human_approval<br/>담당자 승인"}} -->|"승인"| a2["revalidate<br/>최신 재고 · 가격"]
+        a2 -->|"변경 없음"| a3["register<br/>견적 등록"]
+    end
+
+    a2 -->|"조건 변경"| q1
+    a1 -->|"반려"| q1
+    a3 --> fin(["완료"])

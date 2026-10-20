@@ -1,0 +1,35 @@
+flowchart TB
+    vue["<b>View</b><br/>Vue 3 (JSON · SSE 소비)"]
+
+    subgraph C["Controller 계층 · 요청 검증 · 응답 변환"]
+        web["web/ · auth/<br/>/api/** · JWT · 역할별 응답"]
+        intc["internal/<br/>/internal/** · 내부 키"]
+    end
+
+    subgraph S["Service 계층 · 업무 규칙 · 트랜잭션 · 상태 전이"]
+        svc["AuthService · RfqService · TaskService<br/>ReviewService · QuoteService<br/>CatalogService · EmbeddingService"]
+    end
+
+    subgraph M["Model · Domain"]
+        ent["Entity · Enum<br/>Company · User · Rfq · RfqReview · Quote · AiTask<br/>Model · Option · Part · Inventory · DocChunk"]
+    end
+
+    subgraph R["Repository 계층 · DB 접근"]
+        repo["Spring Data JPA (일반 테이블)<br/>JdbcClient (JSONB · vector · 조건부 UPDATE)"]
+    end
+
+    subgraph I["Infrastructure"]
+        infra["client/AgentClient · messaging/ (Producer · Consumer · DLQ)<br/>sse/SseHub · security/ (JwtFilter · InternalKeyFilter)"]
+    end
+
+    db[("PostgreSQL")]
+
+    vue --> web
+    web --> svc
+    intc --> svc
+    svc --> repo
+    svc --> ent
+    repo --> ent
+    repo --> db
+    svc --> infra
+    infra -->|"소비자가 서비스 호출"| svc

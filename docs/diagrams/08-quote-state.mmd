@@ -1,0 +1,12 @@
+stateDiagram-v2
+    [*] --> DRAFT : Agent가 견적 초안 생성 (SG3)
+    DRAFT --> APPROVED : 담당자 승인 (조건부 UPDATE)
+    DRAFT --> REJECTED : 담당자 반려 + 사유
+    APPROVED --> REGISTERED : 재검증 통과 후 등록 (멱등)
+    APPROVED --> REJECTED : 재검증에서 조건 변경 (새 초안 생성)
+    REJECTED --> [*] : 이력 보존, 수정본은 새 quote_id의 DRAFT
+    REGISTERED --> [*] : 고객에게 공개
+    note right of REGISTERED
+        고객은 REGISTERED만 조회
+        parts_cost, margin, checks는 내부용
+    end note
