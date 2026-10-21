@@ -34,7 +34,7 @@ public record AnalysisResumePayload(
         REVISE,
         /** SG3 저장 승인 후 재개 */
         SAVE_APPROVED,
-        /** SG3 저장 거부 후 재개 */
-        SAVE_REJECTED
+        /** SG3 저장 승인 단계에서 수정 요청: 사유를 반영해 재작성 */
+        SAVE_REVISE
     }
 }

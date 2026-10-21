@@ -3,6 +3,7 @@ package com.skala.supplyquote.supplyquote_backend.web.dto;
 import com.skala.supplyquote.supplyquote_backend.domain.AgentStep;
 import com.skala.supplyquote.supplyquote_backend.domain.ApprovalDecision;
 import com.skala.supplyquote.supplyquote_backend.domain.TaskStatus;
+import com.skala.supplyquote.supplyquote_backend.internal.dto.QuoteInternalDto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -28,7 +29,8 @@ public final class TaskDto {
             @Schema(description = "FAILED일 때 사유") String failureReason,
             @Schema(description = "LangSmith trace 링크") String traceUrl,
             Instant createdAt,
-            Instant updatedAt) {
+            Instant updatedAt,
+            @Schema(description = "SG3 저장 승인 대기 중인 견적 초안. MANAGER에게만 내려가며 그 외에는 null") QuoteInternalDto.QuoteDraftRequest pendingDraft) {
     }
 
     @Schema(description = "가정 확인 항목. HIGH 이슈나 누락 값에 대해 담당자가 값을 확정한다.")
@@ -55,16 +57,22 @@ public final class TaskDto {
             @Size(max = 1000) @Schema(description = "REJECTED/REVISE 시 필수 사유", example = "보증 조건 문구 수정") String reason) {
     }
 
-    @Schema(description = "SG3 저장 승인 요청 (MANAGER 전용). 견적을 저장하기 전에 담당자가 진행 여부를 정한다.")
+    @Schema(description = "임시 초안 저장 결과")
+    public record DraftAccepted(
+            UUID taskId,
+            @Schema(example = "WAITING_SAVE_APPROVAL") TaskStatus status) {
+    }
+
+    @Schema(description = "SG3 저장 승인 요청 (MANAGER 전용). 견적을 저장하기 전에 APPROVED(저장) 또는 REVISE(사유를 반영해 재작성)를 고른다. REJECTED는 저장된 견적에 대한 SG4 단계에서만 가능하다.")
     public record SaveApprovalRequest(
-            @NotNull @Schema(example = "true") Boolean approved,
-            @Size(max = 1000) @Schema(description = "approved=false일 때 필수 사유", example = "마진 재검토") String reason) {
+            @NotNull @Schema(example = "APPROVED") ApprovalDecision decision,
+            @Size(max = 1000) @Schema(description = "REVISE 시 필수 사유", example = "마진을 다시 계산해 주세요") String reason) {
     }
 
     @Schema(description = "SG3 저장 승인 접수 결과. 이후 Agent가 같은 thread로 재개한다.")
     public record SaveApprovalAccepted(
             UUID taskId,
-            Boolean approved,
+            ApprovalDecision decision,
             @Schema(example = "RUNNING") TaskStatus status) {
     }
 

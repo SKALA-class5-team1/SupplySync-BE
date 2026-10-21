@@ -1,5 +1,6 @@
 package com.skala.supplyquote.supplyquote_backend.messaging;
 
+import com.skala.supplyquote.supplyquote_backend.domain.ApprovalDecision;
 import com.skala.supplyquote.supplyquote_backend.messaging.contract.AnalysisRequestedPayload;
 import com.skala.supplyquote.supplyquote_backend.messaging.contract.AnalysisResumePayload;
 import com.skala.supplyquote.supplyquote_backend.messaging.contract.MessageEnvelope;
@@ -48,15 +49,20 @@ public class AnalysisDispatch {
                         userId, Map.of("assumptions", assumptions), null)));
     }
 
-    public void saveApproval(UUID taskId, String threadId, long userId, boolean approved, String reason) {
+    /** SG3 저장 승인. decision은 APPROVED 또는 REVISE이고 SG4와 같은 {result, reason, changes} 형식으로 보낸다. */
+    public void saveApproval(UUID taskId, String threadId, long userId, ApprovalDecision result, String reason) {
         Map<String, Object> decision = new java.util.HashMap<>();
-        decision.put("approved", approved);
-        if (!approved) decision.put("reason", reason);
+        decision.put("result", result.name());
+        if (result == ApprovalDecision.REVISE) {
+            decision.put("reason", reason);
+            decision.put("changes", Map.of());
+        }
         if (!enabled) {
-            afterCommit(() -> agent.resumeSaveApproval(taskId, threadId, decision));
+            afterCommit(() -> agent.resumeSaveApproval(taskId, threadId, userId, decision));
             return;
         }
-        var kind = approved ? AnalysisResumePayload.Kind.SAVE_APPROVED : AnalysisResumePayload.Kind.SAVE_REJECTED;
+        var kind = result == ApprovalDecision.APPROVED
+                ? AnalysisResumePayload.Kind.SAVE_APPROVED : AnalysisResumePayload.Kind.SAVE_REVISE;
         enqueue(MessageEnvelope.of(UUID.randomUUID(), MessagingContract.RK_ANALYSIS_RESUME,
                 new AnalysisResumePayload(taskId, null, threadId, kind, userId, decision, null)));
     }

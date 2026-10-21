@@ -48,7 +48,7 @@ public class AiTaskController {
         var result = tasks.status(taskId);
         if (current.get().userType() == UserType.MANAGER) return result;
         return new TaskDto.StatusResponse(result.taskId(), result.rfqNumber(), result.status(), result.outcome(),
-                result.currentStep(), null, null, result.createdAt(), result.updatedAt());
+                result.currentStep(), null, null, result.createdAt(), result.updatedAt(), null);
     }
 
     @Operation(summary = "진행 이벤트 구독 (SSE)",
@@ -93,10 +93,11 @@ public class AiTaskController {
 
     @Operation(summary = "견적 저장 승인 (SG3)",
             description = "작업이 WAITING_SAVE_APPROVAL(Agent의 SAVE_APPROVAL_REQUIRED)일 때 SG3의 견적 저장 여부를 정한다. "
-                    + "approved=false면 reason이 필수이고, Agent에는 {\"approved\": false, \"reason\": \"...\"}로 재개한다. "
+                    + "decision은 APPROVED(저장) 또는 REVISE(사유를 반영해 재작성)이고 REJECTED는 400이다. REVISE에는 reason이 필수이며 "
+                    + "Agent에는 {step: SG3.request_save_approval, userId, decision:{result, reason, changes}}로 재개한다. "
                     + "저장 승인 대기 상태가 아니면 409.")
     @ApiResponse(responseCode = "202", description = "접수됨")
-    @ApiResponse(responseCode = "400", description = "거부인데 reason이 없음",
+    @ApiResponse(responseCode = "400", description = "REJECTED이거나 REVISE인데 reason이 없음",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "403", description = "MANAGER가 아님",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))

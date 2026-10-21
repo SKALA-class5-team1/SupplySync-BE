@@ -618,17 +618,19 @@ class ApiContractTests {
             gateway.start(taskId, 1L, "HB-EV7-EWP-001", threadId, UUID.randomUUID());
             gateway.resumeApproval(taskId, threadId, 2L, "Q-2026-1019-001",
                     Map.of("result", "REVISE", "reason", "조건 수정", "changes", Map.of()));
-            gateway.resumeSaveApproval(taskId, threadId, Map.of("approved", false, "reason", "마진 재검토"));
+            gateway.resumeSaveApproval(taskId, threadId, 2L,
+                    Map.of("result", "REVISE", "reason", "마진 재검토", "changes", Map.of()));
             org.assertj.core.api.Assertions.assertThat(calls.await(5, TimeUnit.SECONDS)).isTrue();
             org.assertj.core.api.Assertions.assertThat(paths).contains("/runs", "/runs/" + threadId + "/resume");
             org.assertj.core.api.Assertions.assertThat(receivedKey.get()).isEqualTo("test-internal-key");
             JsonNode resume = resumeBodies.stream().map(json::readTree)
-                    .filter(node -> node.has("step")).findFirst().orElseThrow();
+                    .filter(node -> "SG4.request_approval".equals(node.path("step").asString())).findFirst().orElseThrow();
             JsonNode saveResume = resumeBodies.stream().map(json::readTree)
-                    .filter(node -> node.has("approved")).findFirst().orElseThrow();
-            org.assertj.core.api.Assertions.assertThat(saveResume.get("approved").asBoolean()).isFalse();
-            org.assertj.core.api.Assertions.assertThat(saveResume.get("reason").asString()).isEqualTo("마진 재검토");
-            org.assertj.core.api.Assertions.assertThat(saveResume.has("step")).isFalse();
+                    .filter(node -> "SG3.request_save_approval".equals(node.path("step").asString())).findFirst().orElseThrow();
+            org.assertj.core.api.Assertions.assertThat(saveResume.get("userId").asLong()).isEqualTo(2L);
+            org.assertj.core.api.Assertions.assertThat(saveResume.get("decision").get("result").asString()).isEqualTo("REVISE");
+            org.assertj.core.api.Assertions.assertThat(saveResume.get("decision").get("reason").asString()).isEqualTo("마진 재검토");
+            org.assertj.core.api.Assertions.assertThat(saveResume.has("quoteId")).isFalse();
             org.assertj.core.api.Assertions.assertThat(resume.get("quoteId").asString()).isEqualTo("Q-2026-1019-001");
             org.assertj.core.api.Assertions.assertThat(resume.get("step").asString()).isEqualTo("SG4.request_approval");
             org.assertj.core.api.Assertions.assertThat(resume.get("userId").asLong()).isEqualTo(2L);
@@ -680,11 +682,51 @@ class ApiContractTests {
         consumer.receive(new Message(resumeBody.getBytes(StandardCharsets.UTF_8), resumeProperties));
         org.mockito.Mockito.verify(gateway).resumeApprovalSync(thread, 2L, "Q-2026-1019-001", decision);
 
-        dispatch.saveApproval(taskId, thread, 2L, true, null);
+        dispatch.saveApproval(taskId, thread, 2L, com.skala.supplyquote.supplyquote_backend.domain.ApprovalDecision.APPROVED, null);
         String saveBody = jdbc.queryForObject("select body::text from analysis_outbox "
                 + "where body->'payload'->>'kind'='SAVE_APPROVED'", String.class);
         consumer.receive(new Message(saveBody.getBytes(StandardCharsets.UTF_8), resumeProperties));
-        org.mockito.Mockito.verify(gateway).resumeSaveApprovalSync(thread, Map.of("approved", true));
+        org.mockito.Mockito.verify(gateway).resumeSaveApprovalSync(thread, 2L, Map.of("result", "APPROVED"));
+    }
+
+    private static String draftBody(String thread) {
+        return """
+                {"thread_id":"%s","revision":1,"rfq_number":"HB-EV7-EWP-001","model_id":"EWP-12-B",
+                 "unit_price_krw":37300,"parts_cost_krw":21650,"margin_pct":42.0,
+                 "price_by_year":[{"year":2027,"unit_price_krw":37300}]}""".formatted(thread);
+    }
+
+    @Test
+    @Transactional
+    void pendingDraftIsShownToManagerOnlyAndClearedOnDecision() throws Exception {
+        seedTask("RUNNING");
+        String thread = "task-" + TASK;
+        mvc.perform(put("/internal/tasks/" + TASK + "/draft").contentType(MediaType.APPLICATION_JSON)
+                        .content(draftBody("task-other")))
+                .andExpect(status().isBadRequest());
+        mvc.perform(put("/internal/tasks/" + TASK + "/draft").contentType(MediaType.APPLICATION_JSON)
+                        .content(draftBody(thread)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RUNNING"));
+        mvc.perform(post("/internal/tasks/" + TASK + "/events").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"type\":\"SAVE_APPROVAL_REQUIRED\",\"step\":\"FINAL_REVIEW\"}"))
+                .andExpect(status().isAccepted());
+        mvc.perform(get("/api/ai/tasks/" + TASK))
+                .andExpect(jsonPath("$.status").value("WAITING_SAVE_APPROVAL"))
+                .andExpect(jsonPath("$.pending_draft.unit_price_krw").value(37300))
+                .andExpect(jsonPath("$.pending_draft.margin_pct").value(42.0));
+        mvc.perform(get("/api/ai/tasks/" + TASK).header("Authorization", customerToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pending_draft").doesNotExist());
+        mvc.perform(post("/api/ai/tasks/" + TASK + "/save-approval").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"decision\":\"APPROVED\"}"))
+                .andExpect(status().isAccepted());
+        mvc.perform(get("/api/ai/tasks/" + TASK))
+                .andExpect(jsonPath("$.pending_draft").doesNotExist());
+        jdbc.update("update ai_tasks set status='DONE' where task_id=?", java.util.UUID.fromString(TASK));
+        mvc.perform(put("/internal/tasks/" + TASK + "/draft").contentType(MediaType.APPLICATION_JSON)
+                        .content(draftBody(thread)))
+                .andExpect(status().isConflict());
     }
 
     @Test
@@ -692,26 +734,56 @@ class ApiContractTests {
     void saveApprovalWaitsBeforeQuoteIsStoredAndResumesSg3() throws Exception {
         seedTask("RUNNING");
         mvc.perform(post("/api/ai/tasks/" + TASK + "/save-approval").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"approved\":true}"))
+                        .content("{\"decision\":\"APPROVED\"}"))
                 .andExpect(status().isConflict());
         mvc.perform(post("/internal/tasks/" + TASK + "/events").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"type\":\"SAVE_APPROVAL_REQUIRED\",\"step\":\"FINAL_REVIEW\"}"))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.status").value("WAITING_SAVE_APPROVAL"));
         mvc.perform(post("/api/ai/tasks/" + TASK + "/save-approval").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"approved\":false}"))
+                        .content("{\"decision\":\"REVISE\"}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/ai/tasks/" + TASK + "/save-approval").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"decision\":\"REJECTED\",\"reason\":\"최종 반려는 SG4에서\"}"))
                 .andExpect(status().isBadRequest());
         mvc.perform(post("/api/ai/tasks/" + TASK + "/save-approval").contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isBadRequest());
         mvc.perform(post("/api/ai/tasks/" + TASK + "/save-approval").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"approved\":false,\"reason\":\"마진 재검토\"}"))
+                        .content("{\"decision\":\"REVISE\",\"reason\":\"마진 재검토\"}"))
                 .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.approved").value(false))
+                .andExpect(jsonPath("$.decision").value("REVISE"))
                 .andExpect(jsonPath("$.status").value("RUNNING"));
         mvc.perform(post("/api/ai/tasks/" + TASK + "/save-approval").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"approved\":true}"))
+                        .content("{\"decision\":\"APPROVED\"}"))
                 .andExpect(status().isConflict());
+    }
+
+    @Test
+    @Transactional
+    void watchdogFailsOnlyStalledTasksAndSkipsHumanWaits() {
+        String[][] rows = {
+                {"QUEUED", "20 minutes"}, {"QUEUED", "1 minutes"}, {"RUNNING", "45 minutes"},
+                {"RUNNING", "5 minutes"}, {"REVALIDATING", "45 minutes"}, {"WAITING_APPROVAL", "5 hours"},
+                {"WAITING_SAVE_APPROVAL", "5 hours"}, {"NEEDS_CLARIFICATION", "5 hours"}, {"DONE", "5 hours"}};
+        var ids = new java.util.ArrayList<UUID>();
+        for (String[] row : rows) {
+            UUID id = UUID.randomUUID();
+            ids.add(id);
+            jdbc.update("insert into ai_tasks(task_id,rfq_number,requested_by,status,thread_id,request_id,updated_at) "
+                    + "values (?,'HB-EV7-EWP-001',1,?,?,?, now() - ?::interval)",
+                    id, row[0], "task-" + id, UUID.randomUUID(), row[1]);
+        }
+        new com.skala.supplyquote.supplyquote_backend.service.StalledTaskWatchdog(jdbc,
+                new com.skala.supplyquote.supplyquote_backend.service.TaskEventStream(), true, 10, 30).sweep();
+        var expected = java.util.List.of("FAILED", "QUEUED", "FAILED", "RUNNING", "FAILED", "WAITING_APPROVAL",
+                "WAITING_SAVE_APPROVAL", "NEEDS_CLARIFICATION", "DONE");
+        for (int i = 0; i < ids.size(); i++) {
+            org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+                    "select status from ai_tasks where task_id=?", String.class, ids.get(i))).isEqualTo(expected.get(i));
+        }
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+                "select failure_reason from ai_tasks where task_id=?", String.class, ids.get(0))).contains("시작되지 않았습니다");
     }
 
     private void seedTask(String status) {

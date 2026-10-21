@@ -80,12 +80,12 @@ public class AgentGateway {
                 .retrieve().toBodilessEntity();
     }
 
-    /** SG3 저장 승인 재개 계약: {"approved": true} 또는 {"approved": false, "reason": "..."}. */
-    public void resumeSaveApproval(UUID taskId, String threadId, Map<String, ?> decision) {
+    /** SG3 저장 승인 재개 계약. SG4와 같은 {step:"SG3.request_save_approval", userId, decision:{result, reason, changes}}. */
+    public void resumeSaveApproval(UUID taskId, String threadId, long userId, Map<String, ?> decision) {
         if (baseUrl.isBlank()) return;
         Thread.startVirtualThread(() -> {
             try {
-                resumeSaveApprovalSync(threadId, decision);
+                resumeSaveApprovalSync(threadId, userId, decision);
             } catch (Exception e) {
                 log.warn("Agent 저장 승인 재개 요청 실패: taskId={}", taskId, e);
                 jdbc.update("update ai_tasks set status='FAILED', failure_reason=?, updated_at=now() where task_id=?",
@@ -94,12 +94,12 @@ public class AgentGateway {
         });
     }
 
-    public void resumeSaveApprovalSync(String threadId, Map<String, ?> decision) {
+    public void resumeSaveApprovalSync(String threadId, long userId, Map<String, ?> decision) {
         requireAgent();
         client.post().uri(baseUrl + "/runs/{threadId}/resume", threadId)
                 .header("X-Internal-Api-Key", internalApiKey)
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(decision)
+                .body(Map.of("step", "SG3.request_save_approval", "userId", userId, "decision", decision))
                 .retrieve().toBodilessEntity();
     }
 

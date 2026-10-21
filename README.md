@@ -7,7 +7,7 @@ Java 21, Spring Boot 4.1.1, Supabase PostgreSQL + pgvector, RabbitMQ, Flyway, sp
 
 1. 새 Supabase 프로젝트에서 `vector` 확장을 `extensions` 스키마에 활성화한다. 이 마이그레이션은 확정 데이터셋 v2.2용 새 프로젝트에 적용한다.
 2. `.env.supabase.example`을 `.env`로 복사하고 Dashboard **Connect**의 host, port, database, user를 그대로 입력한다. 비밀번호도 로컬 `.env`에만 입력한다. Direct 연결은 IPv6 환경에서, IPv4 환경은 Session pooler를 사용한다.
-3. `docker compose up -d rabbitmq`로 RabbitMQ만 실행한다. `SPRING_PROFILES_ACTIVE=demo ./gradlew bootRun`으로 Flyway v2~v6 마이그레이션과 확정 데이터셋 시드를 적용한다. 시드가 필요 없다면 `./gradlew bootRun`을 실행한다.
+3. `docker compose up -d rabbitmq`로 RabbitMQ만 실행한다. `SPRING_PROFILES_ACTIVE=demo ./gradlew bootRun`으로 Flyway v2~v7 마이그레이션과 확정 데이터셋 시드를 적용한다. 시드가 필요 없다면 `./gradlew bootRun`을 실행한다.
 4. RAG MCP가 검색에 사용할 읽기 계정은 필요하면 Supabase에서 별도로 만든다. RAG 측이 새 문서 벡터를 직접 적재하는 경우에는 `rag_reader`의 SELECT 권한만으로는 부족하므로, Agent 팀과 적재 주체·계정을 확정한 뒤 `doc_chunks`에 한정된 권한을 설정한다.
 
 Spring이 JDBC로 업무 테이블을 읽고 쓴다. 프론트는 기존 `/api/**` 계약을 그대로 사용한다. `vector` 확장 스키마를 찾기 위해 Supabase 설정은 `DB_SCHEMA=public,extensions`, TLS를 위해 `DB_SSLMODE=require`이다. Supabase `public`의 기본 객체 때문에 첫 적용 시 `DB_FLYWAY_BASELINE_ON_MIGRATE=true`와 baseline 버전 0을 사용한다. Flyway v2는 확정 데이터셋 스키마, v3는 Agent 결과 컬럼, v4는 견적 revision·작업 outcome, v5는 RabbitMQ outbox다.
@@ -44,7 +44,7 @@ SPRING_PROFILES_ACTIVE=demo ./gradlew bootRun
 - **JSON 필드명은 snake_case**이다 (`rfq_number`, `unit_price_krw`). 데이터셋 정답지(`05_expected`)와 같은 이름이라 Agent·MCP·프론트가 같은 이름을 쓴다.
   Swagger 문서의 필드명도 같다 (테스트가 런타임과 문서의 일치를 확인한다).
 - 카탈로그·RFQ 조회, 업로드·작업 생성, 분석 결과 upsert, 견적 생성·승인·등록, 작업 상태·SSE는 DB와 파일에 연결돼 있다. 로그인은 BCrypt 검증과 JWT 발급으로 동작한다.
-- 분석 메시지 큐는 `ANALYSIS_MQ_ENABLED=true`로 켠다. 기본값 false에서는 기존 HTTP 어댑터를 사용한다. 큐를 켜려면 `AGENT_BASE_URL`과 RabbitMQ 접속 정보가 필요하다. 실제 Agent core의 요청·응답 계약과 통합 검증은 남아 있다.
+- 분석 메시지 큐는 `ANALYSIS_MQ_ENABLED=true`로 켠다. 기본값 false에서는 기존 HTTP 어댑터를 사용한다. 큐를 켜려면 `AGENT_BASE_URL`과 RabbitMQ 접속 정보가 필요하다. Agent가 큐를 직접 소비하면 `ANALYSIS_MQ_CONSUMER_ENABLED=false`로 Spring 소비자만 끈다(발행·큐 선언은 유지). 실제 Agent core의 요청·응답 계약과 통합 검증은 남아 있다.
 - `/api/**`는 로그인 JWT가 필요하다. 고객 업로드와 담당자 확인·승인은 로그인한 사용자 ID로 기록한다. `GET /api/rfqs?mine=true`와 고객 회사별 조회 제한을 적용한다.
 - `/internal/**`은 기존 `X-Internal-Api-Key`로 인증한다. Agent에 사용자 JWT를 보내지 않는다. 프론트 연동 계약은 [Frontend 문서](docs/FRONTEND.md)를 참고한다.
 - 오류 응답은 `{code, message, details, timestamp}` 하나로 통일한다.
@@ -64,10 +64,10 @@ SPRING_PROFILES_ACTIVE=demo ./gradlew bootRun
 | GET | `/api/rfqs/{rfqId}` | 로그인 | RFQ 상세. 다른 회사 RFQ는 404 |
 | GET | `/api/rfqs/{rfqId}/analysis` | MANAGER | 분석 결과 + 원가·마진 포함 견적 이력 |
 | GET | `/api/rfqs/{rfqId}/quotes` | 로그인 | 고객 공개 견적 목록. `REGISTERED`만, 원가·마진 제외 |
-| GET | `/api/ai/tasks/{taskId}` | 로그인 | 작업 상태 조회 (SSE 끊김 후 복구용) |
+| GET | `/api/ai/tasks/{taskId}` | 로그인 | 작업 상태 조회 (SSE 끊김 후 복구용). MANAGER에게는 저장 승인 대기 중 `pending_draft`(견적 초안)도 포함 |
 | GET | `/api/ai/tasks/{taskId}/stream` | 로그인 | 진행 이벤트 SSE (`text/event-stream`). 고객에게는 단계·시간만 전달 |
 | POST | `/api/ai/tasks/{taskId}/confirmation` | MANAGER | 요구 확인. 본문 `{"assumptions":[{"field":"spec.flow","value":"22 L/min"}]}`. 202, 대기 상태가 아니면 409 |
-| POST | `/api/ai/tasks/{taskId}/save-approval` | MANAGER | SG3 저장 승인. 본문 `{"approved":true}` 또는 `{"approved":false,"reason":"..."}`. 대기 상태(`WAITING_SAVE_APPROVAL`)가 아니면 409. 202 |
+| POST | `/api/ai/tasks/{taskId}/save-approval` | MANAGER | SG3 저장 승인. 본문 `{"decision":"APPROVED"}` 또는 `{"decision":"REVISE","reason":"..."}`(`REJECTED`는 400). 대기 상태(`WAITING_SAVE_APPROVAL`)가 아니면 409. 202 |
 | POST | `/api/ai/tasks/{taskId}/approval` | MANAGER | 본문 `{"quote_id":"Q-2026-1019-001","decision":"APPROVED\|REJECTED\|REVISE","reason":"..."}`. `REJECTED`·`REVISE`는 `reason` 필수, `REVISE`는 최대 3회. 202 |
 
 로그인 예시:
@@ -98,6 +98,7 @@ SSE 이벤트: `STEP_START`/`STEP_END`, `TOOL_START`/`TOOL_END`, `TOKEN`, `CLARI
 | POST | `/internal/quotes` | 견적 초안 생성(201). `quote_id`는 서버가 `Q-YYYY-MMDD-NNN`으로 생성. 분석 결과가 없으면 404 |
 | PATCH | `/internal/quotes/{quoteId}` | `DRAFT`일 때만 `checks`, `conditions` 갱신. 아니면 409 |
 | POST | `/internal/quotes/{quoteId}/register` | `APPROVED` 견적만 `REGISTERED`로 등록(멱등). 신규 201, 이미 등록 200, 미승인 409 |
+| PUT | `/internal/tasks/{taskId}/draft` | SG3 저장 승인용 견적 초안 임시 저장(`POST /internal/quotes`와 같은 본문, 정식 견적 아님). 진행·저장 승인 대기 작업만, 아니면 409 |
 | POST | `/internal/tasks/{taskId}/events` | Agent 진행 이벤트 전달(202). `type`, `step`, `message`, `trace_url`, `data` |
 
 작업 상태는 이벤트로 전이한다: `CLARIFICATION_REQUIRED → NEEDS_CLARIFICATION`, `SAVE_APPROVAL_REQUIRED → WAITING_SAVE_APPROVAL`, `APPROVAL_REQUIRED → WAITING_APPROVAL`, `RUN_END → DONE`, `RUN_FAILED → FAILED`.
@@ -115,6 +116,10 @@ SSE 이벤트: `STEP_START`/`STEP_END`, `TOOL_START`/`TOOL_END`, `TOKEN`, `CLARI
 | `CONFLICT_STATE` | 409 | 상태 불일치, 이미 처리됨 |
 | `AGENT_UNAVAILABLE` | 503 | Agent 호출 불가 |
 | `INTERNAL_ERROR` | 500 | 서버 오류 |
+
+### 멈춘 작업 감시
+
+`StalledTaskWatchdog`가 1분마다 `ai_tasks`를 확인해 Agent 이벤트가 끊긴 작업을 `FAILED`로 바꾼다(`failure_reason` 기록, SSE `RUN_FAILED` 전송). `QUEUED`는 10분, `RUNNING`·`REVALIDATING`·`REGISTERING`은 30분 넘게 `updated_at`이 갱신되지 않으면 대상이다. 사람 입력을 기다리는 `NEEDS_CLARIFICATION`, `WAITING_SAVE_APPROVAL`, `WAITING_APPROVAL`은 제외한다. `WATCHDOG_ENABLED`, `WATCHDOG_INTERVAL_MS`, `WATCHDOG_QUEUED_MINUTES`, `WATCHDOG_ACTIVE_MINUTES`로 조정한다. `FAILED`가 된 작업에는 이후 이벤트가 오면 409다.
 
 ## 데모 데이터 (demo 프로파일)
 
@@ -170,6 +175,7 @@ docker exec -it supplysync-postgres psql -U supplysync_app -d supplysync
 | [V4__quote_revision_and_task_outcome.sql](src/main/resources/db/migration/V4__quote_revision_and_task_outcome.sql) | 견적 revision·수정 요청과 작업 종료 결과 |
 | [V5__analysis_outbox.sql](src/main/resources/db/migration/V5__analysis_outbox.sql) | RabbitMQ 발행 복구용 outbox |
 | [V6__save_approval_status.sql](src/main/resources/db/migration/V6__save_approval_status.sql) | SG3 저장 승인 대기 상태(`WAITING_SAVE_APPROVAL`) |
+| [V7__task_pending_draft.sql](src/main/resources/db/migration/V7__task_pending_draft.sql) | 저장 승인용 임시 견적 초안(`ai_tasks.pending_draft`) |
 
 ## 코드 구조
 

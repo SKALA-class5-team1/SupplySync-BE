@@ -11,15 +11,15 @@ import org.slf4j.LoggerFactory;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-/** 브로커 재전달은 processed_messages와 작업 상태로 거르고, 최종 실패는 DLQ로 보낸다. */
+/** Agent가 큐를 직접 소비하면 ANALYSIS_MQ_CONSUMER_ENABLED=false로 이 소비자를 끈다. 브로커 재전달은 processed_messages와 작업 상태로 거르고, 최종 실패는 DLQ로 보낸다. */
 @Component
-@ConditionalOnProperty(prefix = "app.messaging", name = "enabled", havingValue = "true")
+@ConditionalOnExpression("${app.messaging.enabled:false} and ${app.messaging.consumer-enabled:true}")
 public class AnalysisRequestConsumer {
     private static final Logger log = LoggerFactory.getLogger(AnalysisRequestConsumer.class);
     private static final String CONSUMER = "analysis-request-consumer";
@@ -93,8 +93,8 @@ public class AnalysisRequestConsumer {
             switch (payload.kind()) {
                 case CLARIFICATION ->
                         retry(() -> agent.resumeSync(payload.taskId(), payload.threadId(), "CLARIFICATION", payload.decision()));
-                case SAVE_APPROVED, SAVE_REJECTED ->
-                        retry(() -> agent.resumeSaveApprovalSync(payload.threadId(), payload.decision()));
+                case SAVE_APPROVED, SAVE_REVISE ->
+                        retry(() -> agent.resumeSaveApprovalSync(payload.threadId(), payload.userId(), payload.decision()));
                 default -> retry(() -> agent.resumeApprovalSync(payload.threadId(), payload.userId(),
                         payload.quoteId(), payload.decision()));
             }
