@@ -36,7 +36,9 @@ public final class QuoteViews {
             LocalDateTime approvedAt,
             String rejectReason,
             LocalDateTime registeredAt,
-            LocalDateTime createdAt) {
+            LocalDateTime createdAt,
+            LocalDate issueDate,
+            QuoteParts.ManagerDetails details) {
     }
 
     @Schema(description = "고객용 견적. REGISTERED 견적만 조회되며 원가·마진·검토 결과가 없다.")
@@ -51,6 +53,8 @@ public final class QuoteViews {
             @Schema(example = "2026-12-15") LocalDate sampleDueDate,
             @Schema(example = "2026-11-18") LocalDate validUntil,
             List<QuoteParts.Condition> conditions,
-            @Schema(example = "REGISTERED") QuoteStatus status) {
+            @Schema(example = "REGISTERED") QuoteStatus status,
+            LocalDate issueDate,
+            QuoteParts.CustomerDetails details) {
     }
 }

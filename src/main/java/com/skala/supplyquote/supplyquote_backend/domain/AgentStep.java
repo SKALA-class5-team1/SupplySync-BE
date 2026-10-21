@@ -1,7 +1,7 @@
 package com.skala.supplyquote.supplyquote_backend.domain;
 
 /**
- * Agent 워크플로 단계. 진행 이벤트의 step 값이고, 반려 시 복귀 지점(return_to_step)도 이 값이다.
+ * Agent 워크플로 단계. Agent 진행 이벤트의 step 값이다.
  * ALTERNATIVE_ANALYSIS는 납기·재고를 충족하지 못할 때만 실행되는 조건부 단계이다.
  */
 public enum AgentStep {

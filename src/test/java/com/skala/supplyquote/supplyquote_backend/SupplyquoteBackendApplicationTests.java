@@ -12,7 +12,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
-/** Flyway(V1 → V2)가 적용된 실제 PostgreSQL + pgvector에서 스키마와 핵심 SQL 패턴을 확인한다. */
+/** 단일 v2 마이그레이션을 적용한 실제 PostgreSQL + pgvector에서 스키마와 핵심 SQL 패턴을 확인한다. */
 @SpringBootTest
 @Import(TestcontainersConfiguration.class)
 @ActiveProfiles("test")
@@ -33,7 +33,7 @@ class SupplyquoteBackendApplicationTests {
     @Test
     void schemaHasDatasetTablesAndBackendTables() {
         assertThat(tables()).contains(
-                // 데이터셋 v2.1/v2.2 (13개)
+                // 고정 데이터셋 v2.2 (13개)
                 "companies", "users", "models", "parts", "options", "model_options", "bom", "inventory",
                 "part_substitutes", "rfqs", "rfq_reviews", "quotes", "doc_chunks",
                 // 백엔드 전용

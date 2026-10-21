@@ -22,7 +22,7 @@ public final class MessagingContract {
     public static final String RK_ANALYSIS_RESUME = "analysis.resume";
     public static final String RK_ANALYSIS_COMPLETED = "analysis.completed";
     public static final String RK_ANALYSIS_FAILED = "analysis.failed";
-    /** PENDING 상태 문서 청크를 AI 서버 /embeddings로 임베딩하도록 요청한다. */
+    /** PENDING 상태 문서 청크의 임베딩 생성을 요청한다. */
     public static final String RK_DOCUMENT_EMBED_REQUESTED = "document.embed.requested";
 
     // --- Queue ---

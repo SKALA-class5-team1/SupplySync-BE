@@ -6,6 +6,7 @@ import com.skala.supplyquote.supplyquote_backend.dto.ReviewParts;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 public final class ReviewDto {
 
@@ -32,6 +33,7 @@ public final class ReviewDto {
             // SG2
             List<ReviewParts.Shortage> shortages,
             List<ReviewParts.Alternative> alternatives,
-            @Schema(example = "SUBSTITUTE_PART") AlternativeType recommendedAlt) {
+            @Schema(example = "SUBSTITUTE_PART") AlternativeType recommendedAlt,
+            @Schema(description = "SG4 재검증용 확정 부품 수량") Map<String, Integer> finalPlan) {
     }
 }

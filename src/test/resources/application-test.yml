@@ -4,3 +4,5 @@ spring:
     password: test
 app:
   internal-api-key: test-internal-key
+  jwt:
+    secret-base64: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=

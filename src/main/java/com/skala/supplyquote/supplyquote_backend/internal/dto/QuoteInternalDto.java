@@ -22,15 +22,15 @@ public final class QuoteInternalDto {
      * 6_sg3_quote.json의 quote_draft에서 quote_id, status를 뺀 것 + threadId이다.
      * quote_id는 서버가 생성해서 응답으로 돌려준다.
      *
-     * <p>DB에 저장하는 컬럼: modelId, options, unitPriceKrw, partsCostKrw, marginPct, priceByYear, sampleQty,
-     * sampleDueDate, validUntil, conditions, checks. 나머지(recipient, item, incoterms, issueDate, eau, sopDate,
-     * priceBreakdown, partsCostBreakdown)는 quotes 테이블에 컬럼이 없어 저장하지 않으며, rfqs·카탈로그·발행 시각에서
-     * 다시 만들 수 있다. (저장 위치는 데이터셋 담당과 협의 필요)
+     * <p>issueDate는 견적 번호 생성과 quotes.issue_date에 사용한다. recipient, incoterms,
+     * priceBreakdown, partsCostBreakdown은 quotes.details JSONB에 저장한다. item, eau, sopDate는
+     * rfqs에서 조회할 수 있어 견적 행에 중복 저장하지 않는다.
      */
     @Schema(description = "견적 초안 생성 요청 (SG3). 승인 대기 상태(DRAFT)로 저장된다.")
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record QuoteDraftRequest(
             @NotBlank @Schema(description = "어느 분석 실행의 견적인지 (rfq_reviews 연결용)", example = "task-3f2b8c1e-5a4d-4e7b-9c1a-2d6f8e0b7a11") String threadId,
+            @NotNull @Positive @Schema(description = "첫 견적 1, REVISE마다 1 증가. 최대 4", example = "1") Integer revision,
             @NotBlank @Schema(example = "HB-EV7-EWP-001") String rfqNumber,
             @Schema(example = "한별모터스 구매본부") String recipient,
             @Schema(example = "전동식 워터펌프 (EWP, 12V)") String item,

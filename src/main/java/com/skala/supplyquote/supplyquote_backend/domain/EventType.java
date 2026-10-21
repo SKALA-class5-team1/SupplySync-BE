@@ -12,5 +12,7 @@ public enum EventType {
     /** 견적 초안과 최종 검토가 끝나 승인 대기 */
     APPROVAL_REQUIRED,
     DONE,
-    FAILED
+    FAILED,
+    RUN_END,
+    RUN_FAILED
 }

@@ -23,6 +23,7 @@ public final class TaskDto {
             UUID taskId,
             @Schema(example = "HB-EV7-EWP-001") String rfqNumber,
             @Schema(example = "WAITING_APPROVAL") TaskStatus status,
+            @Schema(description = "종료 결과: REGISTERED 또는 REJECTED. 진행 중에는 null") String outcome,
             @Schema(description = "진행 중인 워크플로 단계", example = "APPROVAL") AgentStep currentStep,
             @Schema(description = "FAILED일 때 사유") String failureReason,
             @Schema(description = "LangSmith trace 링크") String traceUrl,
@@ -47,19 +48,18 @@ public final class TaskDto {
             @Schema(example = "RUNNING") TaskStatus status) {
     }
 
-    @Schema(description = "승인/반려 요청 (MANAGER 전용). 승인 단위는 견적(quoteId)이다.")
+    @Schema(description = "승인/종료 반려/수정 요청 (MANAGER 전용). 승인 단위는 견적(quoteId)이다.")
     public record ApprovalRequest(
             @NotBlank @Schema(example = "Q-2026-1019-001") String quoteId,
             @NotNull @Schema(example = "APPROVED") ApprovalDecision decision,
-            @Size(max = 1000) @Schema(description = "반려 사유 (반려 시 필수)", example = "마진 재검토 필요") String reason,
-            @Schema(description = "반려 시 되돌아갈 단계. 생략하면 QUOTE", example = "QUOTE") AgentStep returnToStep) {
+            @Size(max = 1000) @Schema(description = "REJECTED/REVISE 시 필수 사유", example = "보증 조건 문구 수정") String reason) {
     }
 
-    @Schema(description = "승인/반려 접수 결과. 이후 재검증·등록은 비동기로 진행된다.")
+    @Schema(description = "승인/종료 반려/수정 접수 결과. 이후 Agent가 비동기로 처리한다.")
     public record ApprovalAccepted(
             UUID taskId,
             String quoteId,
             ApprovalDecision decision,
-            @Schema(description = "승인이면 REVALIDATING, 반려면 RUNNING(지정 단계로 복귀)", example = "REVALIDATING") TaskStatus status) {
+            @Schema(description = "APPROVED면 REVALIDATING, REJECTED/REVISE면 RUNNING", example = "REVALIDATING") TaskStatus status) {
     }
 }

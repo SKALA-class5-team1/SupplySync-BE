@@ -2,6 +2,7 @@ package com.skala.supplyquote.supplyquote_backend.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.util.List;
 
 /** 견적을 이루는 공통 구조. 필드는 데이터셋 정답지 6_sg3_quote.json의 quote_draft와 같다. */
 public final class QuoteParts {
@@ -19,6 +20,21 @@ public final class QuoteParts {
     public record PartCost(
             @Schema(example = "P-MCU-G1") String partId,
             @Schema(example = "5300") Integer costKrw) {
+    }
+
+    @Schema(description = "담당자용 견적 상세. 부품 원가 내역을 포함한다.")
+    public record ManagerDetails(
+            String recipient,
+            String incoterms,
+            List<PriceBreakdown> priceBreakdown,
+            List<PartCost> partsCostBreakdown) {
+    }
+
+    @Schema(description = "고객용 견적 상세. 원가 내역은 제외한다.")
+    public record CustomerDetails(
+            String recipient,
+            String incoterms,
+            List<PriceBreakdown> priceBreakdown) {
     }
 
     @Schema(description = "연도별 단가·마진 (내부용). 1년차가 기준가, 2년차부터 연 3% 인하 → 6년차는 5회 적용")

@@ -39,7 +39,7 @@ public class OpenApiConfig {
                                 JSON 필드명은 **snake_case**이다. 데이터셋 정답지(05_expected)와 같은 이름을 쓴다.
                                 모든 쓰기는 이 API(Spring)를 거친다. MCP·Agent는 DB에 직접 쓰지 않는다.
 
-                                `[STUB]`로 시작하는 오퍼레이션은 계약 확정용 고정 응답이다. 구현되면 표시가 사라진다."""))
+                                화면용 인증과 내부 API 키는 서로 별개다."""))
                 .components(new Components()
                         .addSecuritySchemes(BEARER, new SecurityScheme()
                                 .type(SecurityScheme.Type.HTTP).scheme("bearer").bearerFormat("JWT"))
