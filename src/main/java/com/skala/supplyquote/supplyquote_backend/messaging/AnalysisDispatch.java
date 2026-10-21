@@ -1,6 +1,5 @@
 package com.skala.supplyquote.supplyquote_backend.messaging;
 
-import com.skala.supplyquote.supplyquote_backend.domain.ApprovalDecision;
 import com.skala.supplyquote.supplyquote_backend.messaging.contract.AnalysisRequestedPayload;
 import com.skala.supplyquote.supplyquote_backend.messaging.contract.AnalysisResumePayload;
 import com.skala.supplyquote.supplyquote_backend.messaging.contract.MessageEnvelope;
@@ -41,40 +40,22 @@ public class AnalysisDispatch {
 
     public void clarification(UUID taskId, String threadId, long userId, Object assumptions) {
         if (!enabled) {
-            afterCommit(() -> agent.resume(taskId, threadId, "CLARIFICATION", Map.of("assumptions", assumptions)));
+            afterCommit(() -> agent.resume(taskId, threadId, "CLARIFICATION", userId, Map.of("assumptions", assumptions)));
             return;
         }
         enqueue(MessageEnvelope.of(UUID.randomUUID(), MessagingContract.RK_ANALYSIS_RESUME,
                 new AnalysisResumePayload(taskId, null, threadId, AnalysisResumePayload.Kind.CLARIFICATION,
-                        userId, Map.of("assumptions", assumptions), null)));
+                        userId, Map.of("assumptions", assumptions))));
     }
 
-    /** SG3 저장 승인. decision은 APPROVED 또는 REVISE이고 SG4와 같은 {result, reason, changes} 형식으로 보낸다. */
-    public void saveApproval(UUID taskId, String threadId, long userId, ApprovalDecision result, String reason) {
-        Map<String, Object> decision = new java.util.HashMap<>();
-        decision.put("result", result.name());
-        if (result == ApprovalDecision.REVISE) {
-            decision.put("reason", reason);
-            decision.put("changes", Map.of());
-        }
+    public void approval(UUID taskId, String threadId, long userId, Map<String, Object> decision) {
         if (!enabled) {
-            afterCommit(() -> agent.resumeSaveApproval(taskId, threadId, userId, decision));
-            return;
-        }
-        var kind = result == ApprovalDecision.APPROVED
-                ? AnalysisResumePayload.Kind.SAVE_APPROVED : AnalysisResumePayload.Kind.SAVE_REVISE;
-        enqueue(MessageEnvelope.of(UUID.randomUUID(), MessagingContract.RK_ANALYSIS_RESUME,
-                new AnalysisResumePayload(taskId, null, threadId, kind, userId, decision, null)));
-    }
-
-    public void approval(UUID taskId, String threadId, long userId, String quoteId, Map<String, Object> decision) {
-        if (!enabled) {
-            afterCommit(() -> agent.resumeApproval(taskId, threadId, userId, quoteId, decision));
+            afterCommit(() -> agent.resumeApproval(taskId, threadId, userId, decision));
             return;
         }
         var kind = AnalysisResumePayload.Kind.valueOf((String) decision.get("result"));
         enqueue(MessageEnvelope.of(UUID.randomUUID(), MessagingContract.RK_ANALYSIS_RESUME,
-                new AnalysisResumePayload(taskId, null, threadId, kind, userId, decision, quoteId)));
+                new AnalysisResumePayload(taskId, null, threadId, kind, userId, decision)));
     }
 
     private void enqueue(MessageEnvelope<?> envelope) {

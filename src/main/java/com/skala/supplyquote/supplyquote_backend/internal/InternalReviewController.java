@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-@Tag(name = "내부 - 분석 결과", description = "Agent용: 분석 결과(rfq_reviews) 저장 (SG1·SG2). 내부 API 인증은 다음 단계에서 적용한다.")
+@Tag(name = "내부 - 분석 결과", description = "Agent용: 분석 결과(rfq_reviews) 저장 (SG1·SG2). X-Internal-Api-Key 헤더가 필요하다.")
 @RestController
 @RequestMapping("/internal/rfq-reviews")
 public class InternalReviewController {

@@ -7,7 +7,6 @@ import com.skala.supplyquote.supplyquote_backend.domain.AgentStep;
 import com.skala.supplyquote.supplyquote_backend.domain.ApprovalDecision;
 import com.skala.supplyquote.supplyquote_backend.domain.TaskStatus;
 import com.skala.supplyquote.supplyquote_backend.internal.dto.EventDto;
-import com.skala.supplyquote.supplyquote_backend.internal.dto.QuoteInternalDto;
 import com.skala.supplyquote.supplyquote_backend.messaging.AnalysisDispatch;
 import com.skala.supplyquote.supplyquote_backend.web.dto.TaskDto;
 import java.time.Instant;
@@ -44,9 +43,7 @@ public class TaskWorkflowService {
                         rs.getString("outcome"),
                         rs.getString("current_step") == null ? null : AgentStep.valueOf(rs.getString("current_step")),
                         rs.getString("failure_reason"), rs.getString("trace_url"),
-                        rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant(),
-                        rs.getString("pending_draft") == null ? null
-                                : json.readValue(rs.getString("pending_draft"), QuoteInternalDto.QuoteDraftRequest.class)), id)
+                        rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()), id)
                 .stream().findFirst().orElseThrow(() -> missing(id));
     }
 
@@ -75,10 +72,10 @@ public class TaskWorkflowService {
             throw conflict("완료된 작업에는 이벤트를 보낼 수 없습니다.");
         TaskStatus next = switch (event.type()) {
             case CLARIFICATION_REQUIRED -> TaskStatus.NEEDS_CLARIFICATION;
-            case SAVE_APPROVAL_REQUIRED -> TaskStatus.WAITING_SAVE_APPROVAL;
             case APPROVAL_REQUIRED -> TaskStatus.WAITING_APPROVAL;
             case DONE, RUN_END -> TaskStatus.DONE;
             case FAILED, RUN_FAILED -> TaskStatus.FAILED;
+            case RUN_ON_HOLD -> TaskStatus.ON_HOLD;
             default -> previous.status() == TaskStatus.QUEUED ? TaskStatus.RUNNING : previous.status();
         };
         jdbc.update("""
@@ -106,38 +103,6 @@ public class TaskWorkflowService {
         if (updated == 0) throw missing(id);
         dispatch.clarification(id, threadId, managerUserId, request.assumptions());
         return new TaskDto.ConfirmationAccepted(id, TaskStatus.RUNNING);
-    }
-
-    /** SG3가 저장 승인 이벤트 전에 보내는 임시 초안. 정식 견적(quotes)이 아니라 작업에 붙여 담당자에게만 보여 준다. */
-    @Transactional
-    public TaskDto.DraftAccepted saveDraft(UUID id, QuoteInternalDto.QuoteDraftRequest draft) {
-        var task = status(id);
-        if (task.status() != TaskStatus.RUNNING && task.status() != TaskStatus.WAITING_SAVE_APPROVAL)
-            throw conflict("진행 중이거나 저장 승인 대기 중인 작업에만 초안을 저장할 수 있습니다.");
-        var owner = jdbc.queryForMap("select thread_id, rfq_number from ai_tasks where task_id=?", id);
-        if (!owner.get("thread_id").equals(draft.threadId()) || !owner.get("rfq_number").equals(draft.rfqNumber()))
-            throw new ApiException(ErrorCode.VALIDATION_ERROR, "초안의 thread_id·rfq_number가 작업과 일치하지 않습니다.");
-        jdbc.update("update ai_tasks set pending_draft=?::jsonb,updated_at=now() where task_id=?",
-                json.writeValueAsString(draft), id);
-        return new TaskDto.DraftAccepted(id, task.status());
-    }
-
-    @Transactional
-    public TaskDto.SaveApprovalAccepted saveApprove(UUID id, TaskDto.SaveApprovalRequest request) {
-        long managerUserId = current.requireManagerId();
-        var task = status(id);
-        if (task.status() != TaskStatus.WAITING_SAVE_APPROVAL) throw conflict("저장 승인 대기 상태가 아닙니다.");
-        if (request.decision() == ApprovalDecision.REJECTED)
-            throw new ApiException(ErrorCode.VALIDATION_ERROR, "저장 승인 단계에서는 APPROVED 또는 REVISE만 선택할 수 있습니다.");
-        boolean approved = request.decision() == ApprovalDecision.APPROVED;
-        if (!approved && (request.reason() == null || request.reason().isBlank()))
-            throw new ApiException(ErrorCode.VALIDATION_ERROR, "REVISE에는 reason이 필요합니다.");
-        String threadId = thread(id);
-        if (jdbc.update("update ai_tasks set status='RUNNING',current_step='QUOTE',pending_draft=null,updated_at=now() "
-                + "where task_id=? and status='WAITING_SAVE_APPROVAL'", id) == 0)
-            throw conflict("이미 처리된 저장 승인입니다.");
-        dispatch.saveApproval(id, threadId, managerUserId, request.decision(), approved ? null : request.reason());
-        return new TaskDto.SaveApprovalAccepted(id, request.decision(), TaskStatus.RUNNING);
     }
 
     @Transactional
@@ -174,7 +139,7 @@ public class TaskWorkflowService {
             decision.put("reason", request.reason());
         }
         if (request.decision() == ApprovalDecision.REVISE) decision.put("changes", Map.of());
-        dispatch.approval(id, threadId, managerUserId, latest, decision);
+        dispatch.approval(id, threadId, managerUserId, decision);
         return new TaskDto.ApprovalAccepted(id, latest, request.decision(), next);
     }
 

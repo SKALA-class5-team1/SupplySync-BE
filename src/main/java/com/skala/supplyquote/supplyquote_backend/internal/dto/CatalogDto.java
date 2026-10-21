@@ -1,6 +1,7 @@
 package com.skala.supplyquote.supplyquote_backend.internal.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -38,9 +39,9 @@ public final class CatalogDto {
             @Schema(example = "IP67") String ipRating,
             @Schema(example = "42") Integer noiseDb,
             @Schema(example = "LIN,PWM") String comm,
-            @Schema(example = "110") Integer sizeLMm,
-            @Schema(example = "90") Integer sizeWMm,
-            @Schema(example = "90") Integer sizeHMm,
+            @JsonProperty("size_l_mm") @Schema(example = "110") Integer sizeLMm,
+            @JsonProperty("size_w_mm") @Schema(example = "90") Integer sizeWMm,
+            @JsonProperty("size_h_mm") @Schema(example = "90") Integer sizeHMm,
             @Schema(example = "0.70") BigDecimal weightKg,
             @Schema(description = "기본 판매 단가", example = "34000") Integer basePriceKrw,
             List<OptionResponse> options) {

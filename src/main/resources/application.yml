@@ -63,10 +63,12 @@ management:
 
 app:
   messaging:
-    # Agent core가 준비되면 true로 전환한다. false일 때 기존 HTTP 어댑터를 유지한다.
-    enabled: ${ANALYSIS_MQ_ENABLED:false}
+    # 기본은 RabbitMQ(outbox → 큐 → 소비자)로 Agent 실행·재개 명령을 전달한다. false로 끄면 개발용으로 Agent HTTP를 직접 호출한다
+    enabled: ${ANALYSIS_MQ_ENABLED:true}
     # false면 Spring은 outbox 발행·큐 선언만 하고 소비하지 않는다 (Agent가 analysis.request.q를 직접 소비할 때)
     consumer-enabled: ${ANALYSIS_MQ_CONSUMER_ENABLED:true}
+    # Agent 호출이 실패했을 때 다시 시도하는 횟수. 0이면 한 번만 호출하고 실패하면 작업을 FAILED로 처리한다
+    request-retries: ${ANALYSIS_REQUEST_RETRIES:0}
   # Agent 팀과 공유. /internal/** 수신과 Spring → Agent HTTP 호출에 같은 헤더를 사용한다.
   internal-api-key: ${INTERNAL_API_KEY}
   watchdog:
@@ -80,6 +82,8 @@ app:
   agent:
     # Agent 팀 계약 확정 후 설정. 비어 있으면 작업은 QUEUED로 남는다.
     base-url: ${AGENT_BASE_URL:}
+    # Agent 응답을 기다리는 최대 시간(초). 이 시간 안에 응답이 없으면 호출 실패로 보고 작업을 FAILED로 처리한다
+    read-timeout-seconds: ${AGENT_READ_TIMEOUT_SECONDS:300}
   jwt:
     secret-base64: ${JWT_SECRET_BASE64:}
     issuer: ${JWT_ISSUER:supplysync}

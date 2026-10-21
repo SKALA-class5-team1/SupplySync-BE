@@ -12,7 +12,6 @@ public enum ErrorCode {
     NOT_FOUND(HttpStatus.NOT_FOUND),
     /** 상태 불일치, 이미 처리됨 (승인 더블 클릭, 오래된 quote_id 등) */
     CONFLICT_STATE(HttpStatus.CONFLICT),
-    AGENT_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR);
 
     private final HttpStatus status;

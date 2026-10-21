@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-@Tag(name = "내부 - RFQ", description = "business MCP·Agent용: RFQ 원문 조회와 추출 값 저장 (SG1). 내부 API 인증은 다음 단계에서 적용한다.")
+@Tag(name = "내부 - RFQ", description = "business MCP·Agent용: RFQ 원문 조회와 추출 값 저장 (SG1). X-Internal-Api-Key 헤더가 필요하다.")
 @RestController
 @RequestMapping("/internal/rfqs")
 public class InternalRfqController {
@@ -48,7 +48,7 @@ public class InternalRfqController {
 
     @Operation(summary = "RFQ 추출 값 저장",
             description = "SG1이 요청서를 읽은 뒤 연간 물량, 시작품 수량, 납기, 양산 시작, 목표 단가, 견적 마감일을 채운다. "
-                    + "전달한 필드만 갱신한다. status는 RECEIVED → IN_REVIEW → QUOTED 순서로만 바꿀 수 있다 (QUOTED는 견적 등록 시 자동).")
+                    + "전달한 필드만 갱신한다. status는 이 API로 RECEIVED → IN_REVIEW만 바꿀 수 있다. QUOTED는 견적 등록 시 서버가 자동으로 바꾼다.")
     @PatchMapping("/{rfqNumber}")
     public InternalRfqDto.RfqInfo patch(@PathVariable String rfqNumber, @RequestBody InternalRfqDto.RfqPatch patch) {
         return commands.patch(rfqNumber, patch);

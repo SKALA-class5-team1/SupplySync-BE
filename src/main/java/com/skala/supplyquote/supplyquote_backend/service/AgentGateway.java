@@ -22,11 +22,12 @@ public class AgentGateway {
 
     public AgentGateway(JdbcTemplate jdbc,
                         @Value("${app.agent.base-url:}") String baseUrl,
-                        @Value("${app.internal-api-key:}") String internalApiKey) {
+                        @Value("${app.internal-api-key:}") String internalApiKey,
+                        @Value("${app.agent.read-timeout-seconds:300}") int readTimeoutSeconds) {
         this.jdbc = jdbc;
         var factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(5_000);
-        factory.setReadTimeout(30_000);
+        factory.setReadTimeout(readTimeoutSeconds * 1_000);
         this.client = RestClient.builder().requestFactory(factory).build();
         this.baseUrl = baseUrl.replaceAll("/+$", "");
         this.internalApiKey = internalApiKey;
@@ -58,11 +59,11 @@ public class AgentGateway {
                 .retrieve().toBodilessEntity();
     }
 
-    public void resume(UUID taskId, String threadId, String kind, Map<String, ?> decision) {
+    public void resume(UUID taskId, String threadId, String kind, long userId, Map<String, ?> decision) {
         if (baseUrl.isBlank()) return;
         Thread.startVirtualThread(() -> {
             try {
-                resumeSync(taskId, threadId, kind, decision);
+                resumeSync(taskId, threadId, kind, userId, decision);
             } catch (Exception e) {
                 log.warn("Agent 재개 요청 실패: taskId={}", taskId, e);
                 jdbc.update("update ai_tasks set status='FAILED', failure_reason=?, updated_at=now() where task_id=?",
@@ -71,44 +72,21 @@ public class AgentGateway {
         });
     }
 
-    public void resumeSync(UUID taskId, String threadId, String kind, Map<String, ?> decision) {
+    public void resumeSync(UUID taskId, String threadId, String kind, long userId, Map<String, ?> decision) {
         requireAgent();
         client.post().uri(baseUrl + "/runs/{threadId}/resume", threadId)
                 .header("X-Internal-Api-Key", internalApiKey)
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("task_id", taskId, "thread_id", threadId, "kind", kind, "decision", decision))
+                .body(Map.of("task_id", taskId, "thread_id", threadId, "kind", kind, "userId", userId, "decision", decision))
                 .retrieve().toBodilessEntity();
     }
 
-    /** SG3 저장 승인 재개 계약. SG4와 같은 {step:"SG3.request_save_approval", userId, decision:{result, reason, changes}}. */
-    public void resumeSaveApproval(UUID taskId, String threadId, long userId, Map<String, ?> decision) {
+    /** SG4 승인·반려·수정 재개 계약. userId는 로그인한 담당자의 DB ID이다. */
+    public void resumeApproval(UUID taskId, String threadId, long userId, Map<String, ?> decision) {
         if (baseUrl.isBlank()) return;
         Thread.startVirtualThread(() -> {
             try {
-                resumeSaveApprovalSync(threadId, userId, decision);
-            } catch (Exception e) {
-                log.warn("Agent 저장 승인 재개 요청 실패: taskId={}", taskId, e);
-                jdbc.update("update ai_tasks set status='FAILED', failure_reason=?, updated_at=now() where task_id=?",
-                        e.getMessage(), taskId);
-            }
-        });
-    }
-
-    public void resumeSaveApprovalSync(String threadId, long userId, Map<String, ?> decision) {
-        requireAgent();
-        client.post().uri(baseUrl + "/runs/{threadId}/resume", threadId)
-                .header("X-Internal-Api-Key", internalApiKey)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("step", "SG3.request_save_approval", "userId", userId, "decision", decision))
-                .retrieve().toBodilessEntity();
-    }
-
-    /** SG4 승인·반려·수정 재개 계약. userId는 로그인한 담당자의 DB ID, quoteId는 결정 대상 견적이다. */
-    public void resumeApproval(UUID taskId, String threadId, long userId, String quoteId, Map<String, ?> decision) {
-        if (baseUrl.isBlank()) return;
-        Thread.startVirtualThread(() -> {
-            try {
-                resumeApprovalSync(threadId, userId, quoteId, decision);
+                resumeApprovalSync(threadId, userId, decision);
             } catch (Exception e) {
                 log.warn("Agent 승인 재개 요청 실패: taskId={}", taskId, e);
                 jdbc.update("update ai_tasks set status='FAILED', failure_reason=?, updated_at=now() where task_id=?",
@@ -117,15 +95,12 @@ public class AgentGateway {
         });
     }
 
-    public void resumeApprovalSync(String threadId, long userId, String quoteId, Map<String, ?> decision) {
+    public void resumeApprovalSync(String threadId, long userId, Map<String, ?> decision) {
         requireAgent();
         client.post().uri(baseUrl + "/runs/{threadId}/resume", threadId)
                 .header("X-Internal-Api-Key", internalApiKey)
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(quoteId == null
-                        ? Map.of("step", "SG4.request_approval", "userId", userId, "decision", decision)
-                        : Map.of("step", "SG4.request_approval", "userId", userId, "quoteId", quoteId,
-                                "decision", decision))
+                .body(Map.of("step", "SG4.request_approval", "userId", userId, "decision", decision))
                 .retrieve().toBodilessEntity();
     }
 

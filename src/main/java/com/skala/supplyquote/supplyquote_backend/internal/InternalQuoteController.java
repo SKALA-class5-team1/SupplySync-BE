@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-@Tag(name = "내부 - 견적", description = "Agent·business MCP용: 견적 초안 생성(SG3), 검토 결과 갱신, 등록(SG4). 내부 API 인증은 다음 단계에서 적용한다.")
+@Tag(name = "내부 - 견적", description = "Agent·business MCP용: 견적 초안 생성(SG3), 검토 결과 갱신, 등록(SG4). X-Internal-Api-Key 헤더가 필요하다.")
 @RestController
 @RequestMapping("/internal/quotes")
 public class InternalQuoteController {

@@ -3,6 +3,9 @@ spring:
   rabbitmq:
     password: test
 app:
+  messaging:
+    # 일반 테스트는 브로커 없이 돈다. 브로커 통합 테스트는 자체 설정으로 켠다
+    enabled: false
   internal-api-key: test-internal-key
   jwt:
     secret-base64: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=

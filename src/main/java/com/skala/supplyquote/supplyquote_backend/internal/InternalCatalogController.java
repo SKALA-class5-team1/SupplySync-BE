@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-@Tag(name = "내부 - 카탈로그·재고", description = "business MCP용: 표준 모델·옵션, 옵션 적용 BOM, 부품, 재고, 대체 부품 조회. 내부 API 인증은 다음 단계에서 적용한다.")
+@Tag(name = "내부 - 카탈로그·재고", description = "business MCP용: 표준 모델·옵션, 옵션 적용 BOM, 부품, 재고, 대체 부품 조회. X-Internal-Api-Key 헤더가 필요하다.")
 @RestController
 @RequestMapping("/internal")
 public class InternalCatalogController {

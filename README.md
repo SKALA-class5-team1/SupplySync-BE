@@ -44,7 +44,7 @@ SPRING_PROFILES_ACTIVE=demo ./gradlew bootRun
 - **JSON 필드명은 snake_case**이다 (`rfq_number`, `unit_price_krw`). 데이터셋 정답지(`05_expected`)와 같은 이름이라 Agent·MCP·프론트가 같은 이름을 쓴다.
   Swagger 문서의 필드명도 같다 (테스트가 런타임과 문서의 일치를 확인한다).
 - 카탈로그·RFQ 조회, 업로드·작업 생성, 분석 결과 upsert, 견적 생성·승인·등록, 작업 상태·SSE는 DB와 파일에 연결돼 있다. 로그인은 BCrypt 검증과 JWT 발급으로 동작한다.
-- 분석 메시지 큐는 `ANALYSIS_MQ_ENABLED=true`로 켠다. 기본값 false에서는 기존 HTTP 어댑터를 사용한다. 큐를 켜려면 `AGENT_BASE_URL`과 RabbitMQ 접속 정보가 필요하다. Agent가 큐를 직접 소비하면 `ANALYSIS_MQ_CONSUMER_ENABLED=false`로 Spring 소비자만 끈다(발행·큐 선언은 유지). 실제 Agent core의 요청·응답 계약과 통합 검증은 남아 있다.
+- 분석 메시지 큐(RabbitMQ)는 **기본으로 켜져 있다**(`ANALYSIS_MQ_ENABLED=true`). 실행하려면 RabbitMQ(`docker compose up -d rabbitmq`)와 `AGENT_BASE_URL`, RabbitMQ 접속 정보가 필요하다. `false`로 끄면 개발용으로 Agent HTTP를 직접 호출하며, Agent 없이 이벤트만 확인할 때도 끄고 실행한다. Agent가 큐를 직접 소비하면 `ANALYSIS_MQ_CONSUMER_ENABLED=false`로 Spring 소비자만 끈다(발행·큐 선언은 유지). Agent 호출은 `ANALYSIS_REQUEST_RETRIES`(기본 0)만큼만 다시 시도한다. 0이면 한 번만 호출하고 실패(타임아웃·4xx·5xx)하면 작업을 `FAILED`로 처리한다. 응답 대기 시간은 `AGENT_READ_TIMEOUT_SECONDS`(기본 300초)다. 실제 Agent core의 요청·응답 계약과 통합 검증은 남아 있다.
 - `/api/**`는 로그인 JWT가 필요하다. 고객 업로드와 담당자 확인·승인은 로그인한 사용자 ID로 기록한다. `GET /api/rfqs?mine=true`와 고객 회사별 조회 제한을 적용한다.
 - `/internal/**`은 기존 `X-Internal-Api-Key`로 인증한다. Agent에 사용자 JWT를 보내지 않는다. 프론트 연동 계약은 [Frontend 문서](docs/FRONTEND.md)를 참고한다.
 - 오류 응답은 `{code, message, details, timestamp}` 하나로 통일한다.
@@ -64,10 +64,9 @@ SPRING_PROFILES_ACTIVE=demo ./gradlew bootRun
 | GET | `/api/rfqs/{rfqId}` | 로그인 | RFQ 상세. 다른 회사 RFQ는 404 |
 | GET | `/api/rfqs/{rfqId}/analysis` | MANAGER | 분석 결과 + 원가·마진 포함 견적 이력 |
 | GET | `/api/rfqs/{rfqId}/quotes` | 로그인 | 고객 공개 견적 목록. `REGISTERED`만, 원가·마진 제외 |
-| GET | `/api/ai/tasks/{taskId}` | 로그인 | 작업 상태 조회 (SSE 끊김 후 복구용). MANAGER에게는 저장 승인 대기 중 `pending_draft`(견적 초안)도 포함 |
+| GET | `/api/ai/tasks/{taskId}` | 로그인 | 작업 상태 조회 (SSE 끊김 후 복구용) |
 | GET | `/api/ai/tasks/{taskId}/stream` | 로그인 | 진행 이벤트 SSE (`text/event-stream`). 고객에게는 단계·시간만 전달 |
 | POST | `/api/ai/tasks/{taskId}/confirmation` | MANAGER | 요구 확인. 본문 `{"assumptions":[{"field":"spec.flow","value":"22 L/min"}]}`. 202, 대기 상태가 아니면 409 |
-| POST | `/api/ai/tasks/{taskId}/save-approval` | MANAGER | SG3 저장 승인. 본문 `{"decision":"APPROVED"}` 또는 `{"decision":"REVISE","reason":"..."}`(`REJECTED`는 400). 대기 상태(`WAITING_SAVE_APPROVAL`)가 아니면 409. 202 |
 | POST | `/api/ai/tasks/{taskId}/approval` | MANAGER | 본문 `{"quote_id":"Q-2026-1019-001","decision":"APPROVED\|REJECTED\|REVISE","reason":"..."}`. `REJECTED`·`REVISE`는 `reason` 필수, `REVISE`는 최대 3회. 202 |
 
 로그인 예시:
@@ -79,7 +78,7 @@ curl -X POST http://localhost:8080/api/auth/login \
 # 이후 요청: -H "Authorization: Bearer <access_token>"
 ```
 
-SSE 이벤트: `STEP_START`/`STEP_END`, `TOOL_START`/`TOOL_END`, `TOKEN`, `CLARIFICATION_REQUIRED`(MANAGER만), `SAVE_APPROVAL_REQUIRED`(MANAGER만), `APPROVAL_REQUIRED`(MANAGER만), `RUN_END`, `RUN_FAILED`. 공통 data 필드는 `task_id`, `step`, `at`이다. 이슈·견적 상세는 이벤트에 없으므로 분석 API를 다시 조회한다.
+SSE 이벤트: `STEP_START`/`STEP_END`, `TOOL_START`/`TOOL_END`, `TOKEN`, `CLARIFICATION_REQUIRED`(MANAGER만), `APPROVAL_REQUIRED`(MANAGER만), `RUN_END`, `RUN_FAILED`, `RUN_ON_HOLD`(MANAGER만, 업무상 보류). 공통 data 필드는 `task_id`, `step`, `at`이다. 이슈·견적 상세는 이벤트에 없으므로 분석 API를 다시 조회한다.
 
 ### 내부용 `/internal/**` (`X-Internal-Api-Key`, Agent·MCP 전용)
 
@@ -95,13 +94,12 @@ SSE 이벤트: `STEP_START`/`STEP_END`, `TOOL_START`/`TOOL_END`, `TOKEN`, `CLARI
 | GET | `/internal/rfqs/{rfqNumber}/content` | RFQ 원문(`text/markdown`) |
 | PATCH | `/internal/rfqs/{rfqNumber}` | SG1 추출 값 저장. 전달한 필드만 갱신. status는 `RECEIVED → IN_REVIEW → QUOTED` 순서만 허용 |
 | PUT | `/internal/rfq-reviews` | 분석 결과 upsert. `(rfq_number, thread_id)` 기준, 전달한 섹션만 갱신(멱등). `issues`, `contract_risks`, `alternatives`의 각 항목에 `evidence: [{chunk_id, section, excerpt}]`를 선택적으로 포함 가능 |
-| POST | `/internal/quotes` | 견적 초안 생성(201). `quote_id`는 서버가 `Q-YYYY-MMDD-NNN`으로 생성. 분석 결과가 없으면 404 |
+| POST | `/internal/quotes` | 견적 초안 생성(201). `quote_id`는 서버가 `Q-YYYY-MMDD-NNN`으로 생성. 분석 결과가 없으면 404. `revision` 2 이상은 직전 견적에 `REVISE`가 기록됐거나, 작업이 `REVALIDATING`(승인 후 재검증에서 재고 변경)일 때만 허용하며 후자는 직전 견적을 `REJECTED`(사유 "재고 변경으로 재작성")로 정리 |
 | PATCH | `/internal/quotes/{quoteId}` | `DRAFT`일 때만 `checks`, `conditions` 갱신. 아니면 409 |
 | POST | `/internal/quotes/{quoteId}/register` | `APPROVED` 견적만 `REGISTERED`로 등록(멱등). 신규 201, 이미 등록 200, 미승인 409 |
-| PUT | `/internal/tasks/{taskId}/draft` | SG3 저장 승인용 견적 초안 임시 저장(`POST /internal/quotes`와 같은 본문, 정식 견적 아님). 진행·저장 승인 대기 작업만, 아니면 409 |
 | POST | `/internal/tasks/{taskId}/events` | Agent 진행 이벤트 전달(202). `type`, `step`, `message`, `trace_url`, `data` |
 
-작업 상태는 이벤트로 전이한다: `CLARIFICATION_REQUIRED → NEEDS_CLARIFICATION`, `SAVE_APPROVAL_REQUIRED → WAITING_SAVE_APPROVAL`, `APPROVAL_REQUIRED → WAITING_APPROVAL`, `RUN_END → DONE`, `RUN_FAILED → FAILED`.
+작업 상태는 이벤트로 전이한다: `CLARIFICATION_REQUIRED → NEEDS_CLARIFICATION`, `APPROVAL_REQUIRED → WAITING_APPROVAL`, `RUN_END → DONE`, `RUN_FAILED → FAILED`, `RUN_ON_HOLD → ON_HOLD`.
 
 ### 오류 응답
 
@@ -114,12 +112,39 @@ SSE 이벤트: `STEP_START`/`STEP_END`, `TOOL_START`/`TOOL_END`, `TOKEN`, `CLARI
 | `FORBIDDEN` | 403 | 역할 권한 없음 |
 | `NOT_FOUND` | 404 | 없는 리소스 (다른 회사 리소스 포함) |
 | `CONFLICT_STATE` | 409 | 상태 불일치, 이미 처리됨 |
-| `AGENT_UNAVAILABLE` | 503 | Agent 호출 불가 |
 | `INTERNAL_ERROR` | 500 | 서버 오류 |
 
 ### 멈춘 작업 감시
 
-`StalledTaskWatchdog`가 1분마다 `ai_tasks`를 확인해 Agent 이벤트가 끊긴 작업을 `FAILED`로 바꾼다(`failure_reason` 기록, SSE `RUN_FAILED` 전송). `QUEUED`는 10분, `RUNNING`·`REVALIDATING`·`REGISTERING`은 30분 넘게 `updated_at`이 갱신되지 않으면 대상이다. 사람 입력을 기다리는 `NEEDS_CLARIFICATION`, `WAITING_SAVE_APPROVAL`, `WAITING_APPROVAL`은 제외한다. `WATCHDOG_ENABLED`, `WATCHDOG_INTERVAL_MS`, `WATCHDOG_QUEUED_MINUTES`, `WATCHDOG_ACTIVE_MINUTES`로 조정한다. `FAILED`가 된 작업에는 이후 이벤트가 오면 409다.
+`StalledTaskWatchdog`가 1분마다 `ai_tasks`를 확인해 Agent 이벤트가 끊긴 작업을 `FAILED`로 바꾼다(`failure_reason` 기록, SSE `RUN_FAILED` 전송). `QUEUED`는 10분, `RUNNING`·`REVALIDATING`·`REGISTERING`은 30분 넘게 `updated_at`이 갱신되지 않으면 대상이다. 사람 입력을 기다리는 `NEEDS_CLARIFICATION`, `WAITING_APPROVAL`과 업무상 보류인 `ON_HOLD`는 제외한다. `WATCHDOG_ENABLED`, `WATCHDOG_INTERVAL_MS`, `WATCHDOG_QUEUED_MINUTES`, `WATCHDOG_ACTIVE_MINUTES`로 조정한다. `FAILED`가 된 작업에는 이후 이벤트가 오면 409다.
+
+### Agent 없이 이벤트 흐름 확인 (curl)
+
+Agent 없이 이벤트를 직접 보내 상태 전이와 담당자 API를 확인할 수 있다. MQ가 켜져 있으면 `AGENT_BASE_URL`이 비어 있을 때 접수 직후 작업이 `FAILED`가 되므로, 이 확인은 `ANALYSIS_MQ_ENABLED=false`로 `demo` 프로파일을 기동해서 한다(작업은 `QUEUED`로 남아 있다가 첫 이벤트에서 `RUNNING`이 된다).
+
+```bash
+BE=http://localhost:8080; KEY=<INTERNAL_API_KEY 값>
+# 1) 고객으로 로그인해 RFQ 접수 (응답의 task_id를 TASK에 넣는다)
+CUSTOMER=$(curl -s -X POST $BE/api/auth/login -H 'Content-Type: application/json' \
+  -d '{"login_id":"hb_buyer01","password":"demo1234"}' | jq -r .access_token)
+curl -s -X POST $BE/api/rfqs -H "Authorization: Bearer $CUSTOMER" \
+  -F 'file=@src/main/resources/db/seed/01_rfq/RFQ_HB-EV7-EWP-001.md' -F 'rfq_number=DEMO-001'
+TASK=<task_id>
+# 2) Agent 역할: 진행 이벤트 전송
+ev() { curl -s -X POST $BE/internal/tasks/$TASK/events -H "X-Internal-Api-Key: $KEY" \
+  -H 'Content-Type: application/json' -d "$1"; echo; }
+ev '{"type":"STEP_START","step":"RFQ_ANALYSIS"}'        # QUEUED -> RUNNING
+ev '{"type":"CLARIFICATION_REQUIRED","step":"SPEC_MATCH"}'  # -> NEEDS_CLARIFICATION
+ev '{"type":"APPROVAL_REQUIRED","step":"APPROVAL"}'     # -> WAITING_APPROVAL
+ev '{"type":"RUN_ON_HOLD","message":"쓸 수 있는 대안이 없음"}'  # -> ON_HOLD
+ev '{"type":"RUN_FAILED","message":"테스트 실패"}'        # -> FAILED
+# 3) 담당자로 상태 확인
+MANAGER=$(curl -s -X POST $BE/api/auth/login -H 'Content-Type: application/json' \
+  -d '{"login_id":"ds_sales01","password":"demo1234"}' | jq -r .access_token)
+curl -s $BE/api/ai/tasks/$TASK -H "Authorization: Bearer $MANAGER"
+```
+
+실제 RabbitMQ까지 거치는 흐름(outbox 발행 → 큐 → Spring 소비자 → Agent HTTP 호출, 실패 시 DLQ)은 `AnalysisMessagingIntegrationTests`가 Testcontainers의 RabbitMQ와 가짜 Agent 서버로 확인한다. Docker가 필요하다.
 
 ## 데모 데이터 (demo 프로파일)
 
@@ -174,8 +199,8 @@ docker exec -it supplysync-postgres psql -U supplysync_app -d supplysync
 | [V3__review_plan_and_quote_details.sql](src/main/resources/db/migration/V3__review_plan_and_quote_details.sql) | `final_plan`, `issue_date`, `details` 추가 |
 | [V4__quote_revision_and_task_outcome.sql](src/main/resources/db/migration/V4__quote_revision_and_task_outcome.sql) | 견적 revision·수정 요청과 작업 종료 결과 |
 | [V5__analysis_outbox.sql](src/main/resources/db/migration/V5__analysis_outbox.sql) | RabbitMQ 발행 복구용 outbox |
-| [V6__save_approval_status.sql](src/main/resources/db/migration/V6__save_approval_status.sql) | SG3 저장 승인 대기 상태(`WAITING_SAVE_APPROVAL`) |
-| [V7__task_pending_draft.sql](src/main/resources/db/migration/V7__task_pending_draft.sql) | 저장 승인용 임시 견적 초안(`ai_tasks.pending_draft`) |
+| [V6__save_approval_status.sql](src/main/resources/db/migration/V6__save_approval_status.sql) | SG3 저장 승인 대기 상태(`WAITING_SAVE_APPROVAL`). SG3 저장 승인을 두지 않기로 해 현재 쓰이지 않는다 |
+| [V7__task_pending_draft.sql](src/main/resources/db/migration/V7__task_pending_draft.sql) | 저장 승인용 임시 견적 초안 컬럼(`ai_tasks.pending_draft`). 현재 쓰이지 않는다 |
 
 ## 코드 구조
 

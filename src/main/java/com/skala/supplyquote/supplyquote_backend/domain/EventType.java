@@ -9,12 +9,12 @@ public enum EventType {
     TOKEN,
     /** HIGH 이슈로 멈춤. MANAGER에게만 중계한다 (이슈 내용 포함) */
     CLARIFICATION_REQUIRED,
-    /** SG3가 견적을 저장하기 직전 담당자의 저장 승인을 기다림. MANAGER에게만 중계한다 */
-    SAVE_APPROVAL_REQUIRED,
     /** 견적 초안과 최종 검토가 끝나 승인 대기 */
     APPROVAL_REQUIRED,
     DONE,
     FAILED,
     RUN_END,
-    RUN_FAILED
+    RUN_FAILED,
+    /** 업무상 보류(예: 쓸 수 있는 대안이 없음). 오류가 아니다. MANAGER에게만 중계한다 */
+    RUN_ON_HOLD
 }

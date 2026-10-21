@@ -98,10 +98,22 @@ public class ReviewQuoteService {
             Integer count = jdbc.queryForObject("select count(*) from quotes where review_id=?", Integer.class, reviewId);
             if (count != null && count > 0) throw conflict("첫 견적은 이미 저장되었습니다.");
         } else {
-            Boolean allowed = jdbc.query("select revision_requested from quotes where review_id=? and revision=?",
-                    (rs, row) -> rs.getBoolean(1), reviewId, r.revision() - 1).stream().findFirst()
-                    .orElse(false);
-            if (!allowed) throw conflict("REVISE 승인 후 다음 revision을 저장할 수 있습니다.");
+            var previous = jdbc.query("select revision_requested, status from quotes where review_id=? and revision=?",
+                    (rs, row) -> Map.entry(rs.getBoolean(1), rs.getString(2)), reviewId, r.revision() - 1)
+                    .stream().findFirst().orElse(null);
+            boolean revised = previous != null && previous.getKey();
+            // SG4 재검증에서 재고가 바뀐 경우: 승인된 직전 견적을 폐기하고 새 revision으로 다시 쓴다
+            boolean staleAfterRevalidation = previous != null && "APPROVED".equals(previous.getValue())
+                    && jdbc.queryForObject("select count(*) from ai_tasks where thread_id=? and status='REVALIDATING'",
+                    Integer.class, r.threadId()) > 0;
+            if (!revised && !staleAfterRevalidation)
+                throw conflict("REVISE 승인 후 다음 revision을 저장할 수 있습니다.");
+            if (staleAfterRevalidation) {
+                jdbc.update("update quotes set status='REJECTED', reject_reason='재고 변경으로 재작성', revision_requested=true "
+                        + "where review_id=? and revision=? and status='APPROVED'", reviewId, r.revision() - 1);
+                jdbc.update("update ai_tasks set status='RUNNING', current_step='QUOTE', updated_at=now() "
+                        + "where thread_id=? and status='REVALIDATING'", r.threadId());
+            }
         }
         if (jdbc.queryForObject("select count(*) from models where model_id=?", Integer.class, r.modelId()) == 0)
             throw missing("모델", r.modelId());

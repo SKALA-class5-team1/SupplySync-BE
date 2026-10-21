@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -26,8 +27,12 @@ public class AnalysisRequestConsumer {
     private final JdbcTemplate jdbc;
     private final JsonMapper json;
     private final AgentGateway agent;
+    /** Agent 호출 실패 시 다시 시도하는 횟수. 0이면 한 번만 호출하고 실패하면 작업을 FAILED로 처리한다 */
+    private final int retries;
 
-    public AnalysisRequestConsumer(JdbcTemplate jdbc, JsonMapper json, AgentGateway agent) {
+    public AnalysisRequestConsumer(JdbcTemplate jdbc, JsonMapper json, AgentGateway agent,
+                                   @Value("${app.messaging.request-retries:0}") int retries) {
+        this.retries = Math.max(0, retries);
         this.jdbc = jdbc;
         this.json = json;
         this.agent = agent;
@@ -91,12 +96,9 @@ public class AnalysisRequestConsumer {
         if ("DONE".equals(status) || "FAILED".equals(status)) return;
         try {
             switch (payload.kind()) {
-                case CLARIFICATION ->
-                        retry(() -> agent.resumeSync(payload.taskId(), payload.threadId(), "CLARIFICATION", payload.decision()));
-                case SAVE_APPROVED, SAVE_REVISE ->
-                        retry(() -> agent.resumeSaveApprovalSync(payload.threadId(), payload.userId(), payload.decision()));
-                default -> retry(() -> agent.resumeApprovalSync(payload.threadId(), payload.userId(),
-                        payload.quoteId(), payload.decision()));
+                case CLARIFICATION -> retry(() -> agent.resumeSync(payload.taskId(), payload.threadId(),
+                        "CLARIFICATION", payload.userId(), payload.decision()));
+                default -> retry(() -> agent.resumeApprovalSync(payload.threadId(), payload.userId(), payload.decision()));
             }
         } catch (RuntimeException e) {
             jdbc.update("update ai_tasks set status='FAILED',failure_reason=?,completed_at=now(),updated_at=now() "
@@ -111,7 +113,7 @@ public class AnalysisRequestConsumer {
                 call.run();
                 return;
             } catch (RuntimeException e) {
-                if (attempt == 3) throw e;
+                if (attempt >= retries) throw e;
                 try {
                     Thread.sleep((1L << attempt) * 1000L);
                 } catch (InterruptedException interrupted) {
