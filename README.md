@@ -114,6 +114,20 @@ SSE 이벤트: `STEP_START`/`STEP_END`, `TOOL_START`/`TOOL_END`, `TOKEN`, `CLARI
 | `CONFLICT_STATE` | 409 | 상태 불일치, 이미 처리됨 |
 | `INTERNAL_ERROR` | 500 | 서버 오류 |
 
+### 오류 로그
+
+응답 상태가 400 이상인 요청은 한 줄로 로그에 남는다. 컨트롤러에 닿기 전에 막힌 요청(로그인 실패, 토큰 오류, 권한 없음, CORS 거부)도 포함한다. 요청 헤더와 본문은 남기지 않는다.
+
+```
+WARN  HTTP 401 POST /api/auth/login (4ms) origin=http://localhost:5173 사유=UNAUTHORIZED: 아이디 또는 비밀번호가 올바르지 않습니다.
+WARN  HTTP 403 POST /api/auth/login (1ms) origin=http://localhost:5173 사유=CORS 거부 가능성: 이 origin이 FRONTEND_ORIGINS에 없는지 확인하세요
+ERROR HTTP 500 GET /internal/models (9ms) origin=null 사유=INTERNAL_ERROR: ...   (바로 앞에 스택 트레이스)
+```
+
+- 4xx는 `WARN`, 5xx와 처리되지 않은 예외는 `ERROR`이며 예외는 스택 트레이스를 함께 남긴다.
+- `FRONTEND_ORIGINS`가 비어 있으면 기동 시 경고를 남긴다.
+- 처리되지 않은 예외는 공통 오류 형식의 500(`INTERNAL_ERROR`)으로 응답한다.
+
 ### 멈춘 작업 감시
 
 `StalledTaskWatchdog`가 1분마다 `ai_tasks`를 확인해 Agent 이벤트가 끊긴 작업을 `FAILED`로 바꾼다(`failure_reason` 기록, SSE `RUN_FAILED` 전송). `QUEUED`는 10분, `RUNNING`·`REVALIDATING`·`REGISTERING`은 30분 넘게 `updated_at`이 갱신되지 않으면 대상이다. 사람 입력을 기다리는 `NEEDS_CLARIFICATION`, `WAITING_APPROVAL`과 업무상 보류인 `ON_HOLD`는 제외한다. `WATCHDOG_ENABLED`, `WATCHDOG_INTERVAL_MS`, `WATCHDOG_QUEUED_MINUTES`, `WATCHDOG_ACTIVE_MINUTES`로 조정한다. `FAILED`가 된 작업에는 이후 이벤트가 오면 409다.

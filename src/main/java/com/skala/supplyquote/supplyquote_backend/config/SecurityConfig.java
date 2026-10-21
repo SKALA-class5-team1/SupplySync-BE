@@ -20,6 +20,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -28,6 +29,8 @@ import tools.jackson.databind.json.JsonMapper;
 
 @Configuration
 public class SecurityConfig {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(SecurityConfig.class);
+
     @Bean
     PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(); }
 
@@ -49,6 +52,10 @@ public class SecurityConfig {
                 throw new BadCredentialsException("계정 정보가 변경되었습니다.");
             return List.of(new SimpleGrantedAuthority("ROLE_" + user.userType().name()));
         });
+        AuthenticationEntryPoint unauthorized = (request, response, error) -> {
+            request.setAttribute(RequestErrorLogFilter.ERROR_ATTRIBUTE, "UNAUTHORIZED: " + error.getMessage());
+            writeError(response, json, 401, "UNAUTHORIZED", "로그인이 필요하거나 토큰이 유효하지 않습니다.");
+        };
         http.csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -63,12 +70,14 @@ public class SecurityConfig {
                         .hasRole("MANAGER")
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().denyAll())
-                .oauth2ResourceServer(oauth -> oauth.jwt(jwt -> jwt.jwtAuthenticationConverter(converter)))
+                .oauth2ResourceServer(oauth -> oauth.jwt(jwt -> jwt.jwtAuthenticationConverter(converter))
+                        .authenticationEntryPoint(unauthorized))
                 .exceptionHandling(ex -> ex
-                        .authenticationEntryPoint((request, response, error) -> writeError(response, json, 401,
-                                "UNAUTHORIZED", "로그인이 필요하거나 토큰이 유효하지 않습니다."))
-                        .accessDeniedHandler((request, response, error) -> writeError(response, json, 403,
-                                "FORBIDDEN", "접근 권한이 없습니다.")));
+                        .authenticationEntryPoint(unauthorized)
+                        .accessDeniedHandler((request, response, error) -> {
+                            request.setAttribute(RequestErrorLogFilter.ERROR_ATTRIBUTE, "FORBIDDEN: " + error.getMessage());
+                            writeError(response, json, 403, "FORBIDDEN", "접근 권한이 없습니다.");
+                        }));
         return http.build();
     }
 
@@ -83,7 +92,13 @@ public class SecurityConfig {
     @Bean
     CorsConfigurationSource corsConfigurationSource(@Value("${app.cors.allowed-origins:}") String origins) {
         CorsConfiguration cors = new CorsConfiguration();
-        cors.setAllowedOrigins(Arrays.stream(origins.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList());
+        List<String> allowed = Arrays.stream(origins.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
+        if (allowed.isEmpty()) {
+            log.warn("FRONTEND_ORIGINS가 비어 있어 브라우저의 다른 origin 요청은 모두 403(Invalid CORS request)이 됩니다.");
+        } else {
+            log.info("CORS 허용 origin: {}", allowed);
+        }
+        cors.setAllowedOrigins(allowed);
         cors.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         cors.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Internal-Api-Key"));
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
