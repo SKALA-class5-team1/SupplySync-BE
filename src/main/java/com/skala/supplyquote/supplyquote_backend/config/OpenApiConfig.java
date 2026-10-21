@@ -16,7 +16,7 @@ import org.springframework.context.annotation.Configuration;
 /**
  * Swagger UI: /swagger-ui.html
  * 화면 상단 드롭다운에서 화면용 API(/api)와 내부 업무 API(/internal)를 나눠 본다.
- * 메시지 규약(RabbitMQ)은 REST가 아니므로 docs/MESSAGING.md에 둔다.
+ * 메시지 규약(RabbitMQ)은 REST가 아니므로 docs/BACKEND.md에 둔다.
  */
 @Configuration
 public class OpenApiConfig {

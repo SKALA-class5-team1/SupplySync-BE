@@ -2,7 +2,7 @@ package com.skala.supplyquote.supplyquote_backend.messaging.contract;
 
 /**
  * RabbitMQ 메시지 규약의 이름 상수. 생산자·소비자가 같은 값을 쓰도록 한 곳에 모은다.
- * 상세 규칙(재시도, DLQ, 멱등 처리)은 docs/MESSAGING.md 참고.
+ * 상세 규칙(재시도, DLQ, 멱등 처리)은 docs/BACKEND.md 참고.
  */
 public final class MessagingContract {
 

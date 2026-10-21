@@ -1,6 +1,6 @@
 # 다이어그램
 
-원본은 Mermaid(`*.mmd`)이고, 문서에 넣기 위한 PNG를 같이 둔다. 설명과 읽는 순서는 [../DESIGN.md](../DESIGN.md) 참고.
+원본은 Mermaid(`*.mmd`)이고 PNG를 같이 둔다. 현재 구현·연동 경계는 [Backend](../BACKEND.md)와 [Agent](../AGENT.md)를 기준으로 읽는다. 그림 일부는 초기 제안 단계의 구성을 보여 주므로 실제 배포·API·메시지 계약의 기준으로 사용하지 않는다.
 
 | 파일 | 내용 |
 | --- | --- |
@@ -9,7 +9,7 @@
 | 03-layers | MVC 레이어 구조 |
 | 04-domain-classes | 도메인(Model) 클래스 |
 | 05-service-classes | Controller · Service · Infrastructure 클래스 |
-| 06-erd | ERD (데이터셋 v2.1 + 백엔드 테이블) |
+| 06-erd | ERD 개념도 (정확한 컬럼은 Flyway V2~V5 기준) |
 | 07-task-state | 분석 작업(ai_tasks) 상태 머신 |
 | 08-quote-state | 견적(quotes) 상태 머신 |
 | 09-seq-intake | RFQ 접수 → 분석 시작 시퀀스 |
@@ -17,8 +17,8 @@
 | 11-seq-approval | 승인 → 재검증 → 등록 시퀀스 |
 | 12-langgraph-overview | LangGraph 전체 흐름 (요약) |
 | 13-langgraph-detail | LangGraph 전체 흐름 (노드 단위) |
-| 14-rabbitmq | RabbitMQ 토폴로지 |
-| 15-seq-embedding | 임베딩 적재 파이프라인 시퀀스 |
+
+현재 쓰지 않는 결과·임베딩 큐의 옛 토폴로지와 임베딩 시퀀스 그림은 제거했다. 실제 RabbitMQ 경로는 [Backend 문서](../BACKEND.md#rabbitmq-분석-요청재개), 새 문서 적재의 후속 범위는 [Agent 문서](../AGENT.md#rag-검색과-후속-단계)를 본다.
 
 ## PNG 다시 만들기
 
