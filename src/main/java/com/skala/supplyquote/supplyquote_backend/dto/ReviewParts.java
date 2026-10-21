@@ -15,6 +15,13 @@ public final class ReviewParts {
     private ReviewParts() {
     }
 
+    @Schema(description = "RAG 근거. 이슈·계약 리스크·대안 항목에 함께 저장한다")
+    public record Evidence(
+            @Schema(description = "문서 청크 ID", example = "dsn-002") String chunkId,
+            @Schema(description = "문서 내 위치", example = "2.1") String section,
+            @Schema(description = "인용 내용") String excerpt) {
+    }
+
     @Schema(description = "검증 이슈 (validate_rules 결과). 2_validation_issues.json의 issues")
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record Issue(
@@ -25,7 +32,8 @@ public final class ReviewParts {
             @Schema(example = "22 L/h (= 0.37 L/min)") String found,
             @Schema(example = "정상 범위 5~60 L/min을 크게 벗어남. 단위 오기 의심") String reason,
             @Schema(example = "22 L/min으로 가정") String suggestion,
-            @Schema(description = "근거 문서 (RAG 인용)", example = "design_standard.md §2") String ref) {
+            @Schema(description = "근거 문서 (RAG 인용)", example = "design_standard.md §2") String ref,
+            List<Evidence> evidence) {
     }
 
     @Schema(description = "승인된 가정. 4_output_state.json의 assumptions")
@@ -36,10 +44,12 @@ public final class ReviewParts {
     }
 
     @Schema(description = "계약 리스크 (check_contract 결과). 4_output_state.json의 contract_risks")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public record ContractRisk(
             @Schema(example = "품질 보증 5년/150,000km") String item,
             @Schema(example = "3년/100,000km") String limit,
-            @Schema(example = "제12조") String ref) {
+            @Schema(example = "제12조") String ref,
+            List<Evidence> evidence) {
     }
 
     @Schema(description = "부족 부품 (SG2). 5_sg2_supply.json의 shortages")
@@ -82,6 +92,7 @@ public final class ReviewParts {
             @Schema(description = "SUBSTITUTE_PART: 대체 공급사", example = "누리칩스") String substituteSupplier,
             @Schema(description = "SUBSTITUTE_PART: 적용 전 검증 일수", example = "14") Integer validationDays,
             @Schema(description = "SUBSTITUTE_PART: 개당 원가 차이(원)", example = "300") Integer unitCostDiffKrw,
-            @Schema(description = "NEW_ORDER: 신규 발주 조달기간(일)", example = "120") Integer leadTimeDays) {
+            @Schema(description = "NEW_ORDER: 신규 발주 조달기간(일)", example = "120") Integer leadTimeDays,
+            List<Evidence> evidence) {
     }
 }

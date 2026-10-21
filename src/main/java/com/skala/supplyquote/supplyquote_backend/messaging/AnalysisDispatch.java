@@ -45,17 +45,30 @@ public class AnalysisDispatch {
         }
         enqueue(MessageEnvelope.of(UUID.randomUUID(), MessagingContract.RK_ANALYSIS_RESUME,
                 new AnalysisResumePayload(taskId, null, threadId, AnalysisResumePayload.Kind.CLARIFICATION,
-                        userId, Map.of("assumptions", assumptions))));
+                        userId, Map.of("assumptions", assumptions), null)));
     }
 
-    public void approval(UUID taskId, String threadId, long userId, Map<String, Object> decision) {
+    public void saveApproval(UUID taskId, String threadId, long userId, boolean approved, String reason) {
+        Map<String, Object> decision = new java.util.HashMap<>();
+        decision.put("approved", approved);
+        if (!approved) decision.put("reason", reason);
         if (!enabled) {
-            afterCommit(() -> agent.resumeApproval(taskId, threadId, userId, decision));
+            afterCommit(() -> agent.resumeSaveApproval(taskId, threadId, decision));
+            return;
+        }
+        var kind = approved ? AnalysisResumePayload.Kind.SAVE_APPROVED : AnalysisResumePayload.Kind.SAVE_REJECTED;
+        enqueue(MessageEnvelope.of(UUID.randomUUID(), MessagingContract.RK_ANALYSIS_RESUME,
+                new AnalysisResumePayload(taskId, null, threadId, kind, userId, decision, null)));
+    }
+
+    public void approval(UUID taskId, String threadId, long userId, String quoteId, Map<String, Object> decision) {
+        if (!enabled) {
+            afterCommit(() -> agent.resumeApproval(taskId, threadId, userId, quoteId, decision));
             return;
         }
         var kind = AnalysisResumePayload.Kind.valueOf((String) decision.get("result"));
         enqueue(MessageEnvelope.of(UUID.randomUUID(), MessagingContract.RK_ANALYSIS_RESUME,
-                new AnalysisResumePayload(taskId, null, threadId, kind, userId, decision)));
+                new AnalysisResumePayload(taskId, null, threadId, kind, userId, decision, quoteId)));
     }
 
     private void enqueue(MessageEnvelope<?> envelope) {

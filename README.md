@@ -7,7 +7,7 @@ Java 21, Spring Boot 4.1.1, Supabase PostgreSQL + pgvector, RabbitMQ, Flyway, sp
 
 1. 새 Supabase 프로젝트에서 `vector` 확장을 `extensions` 스키마에 활성화한다. 이 마이그레이션은 확정 데이터셋 v2.2용 새 프로젝트에 적용한다.
 2. `.env.supabase.example`을 `.env`로 복사하고 Dashboard **Connect**의 host, port, database, user를 그대로 입력한다. 비밀번호도 로컬 `.env`에만 입력한다. Direct 연결은 IPv6 환경에서, IPv4 환경은 Session pooler를 사용한다.
-3. `docker compose up -d rabbitmq`로 RabbitMQ만 실행한다. `SPRING_PROFILES_ACTIVE=demo ./gradlew bootRun`으로 Flyway v2~v5 마이그레이션과 확정 데이터셋 시드를 적용한다. 시드가 필요 없다면 `./gradlew bootRun`을 실행한다.
+3. `docker compose up -d rabbitmq`로 RabbitMQ만 실행한다. `SPRING_PROFILES_ACTIVE=demo ./gradlew bootRun`으로 Flyway v2~v6 마이그레이션과 확정 데이터셋 시드를 적용한다. 시드가 필요 없다면 `./gradlew bootRun`을 실행한다.
 4. RAG MCP가 검색에 사용할 읽기 계정은 필요하면 Supabase에서 별도로 만든다. RAG 측이 새 문서 벡터를 직접 적재하는 경우에는 `rag_reader`의 SELECT 권한만으로는 부족하므로, Agent 팀과 적재 주체·계정을 확정한 뒤 `doc_chunks`에 한정된 권한을 설정한다.
 
 Spring이 JDBC로 업무 테이블을 읽고 쓴다. 프론트는 기존 `/api/**` 계약을 그대로 사용한다. `vector` 확장 스키마를 찾기 위해 Supabase 설정은 `DB_SCHEMA=public,extensions`, TLS를 위해 `DB_SSLMODE=require`이다. Supabase `public`의 기본 객체 때문에 첫 적용 시 `DB_FLYWAY_BASELINE_ON_MIGRATE=true`와 baseline 버전 0을 사용한다. Flyway v2는 확정 데이터셋 스키마, v3는 Agent 결과 컬럼, v4는 견적 revision·작업 outcome, v5는 RabbitMQ outbox다.
@@ -67,6 +67,7 @@ SPRING_PROFILES_ACTIVE=demo ./gradlew bootRun
 | GET | `/api/ai/tasks/{taskId}` | 로그인 | 작업 상태 조회 (SSE 끊김 후 복구용) |
 | GET | `/api/ai/tasks/{taskId}/stream` | 로그인 | 진행 이벤트 SSE (`text/event-stream`). 고객에게는 단계·시간만 전달 |
 | POST | `/api/ai/tasks/{taskId}/confirmation` | MANAGER | 요구 확인. 본문 `{"assumptions":[{"field":"spec.flow","value":"22 L/min"}]}`. 202, 대기 상태가 아니면 409 |
+| POST | `/api/ai/tasks/{taskId}/save-approval` | MANAGER | SG3 저장 승인. 본문 `{"approved":true}` 또는 `{"approved":false,"reason":"..."}`. 대기 상태(`WAITING_SAVE_APPROVAL`)가 아니면 409. 202 |
 | POST | `/api/ai/tasks/{taskId}/approval` | MANAGER | 본문 `{"quote_id":"Q-2026-1019-001","decision":"APPROVED\|REJECTED\|REVISE","reason":"..."}`. `REJECTED`·`REVISE`는 `reason` 필수, `REVISE`는 최대 3회. 202 |
 
 로그인 예시:
@@ -78,7 +79,7 @@ curl -X POST http://localhost:8080/api/auth/login \
 # 이후 요청: -H "Authorization: Bearer <access_token>"
 ```
 
-SSE 이벤트: `STEP_START`/`STEP_END`, `TOOL_START`/`TOOL_END`, `TOKEN`, `CLARIFICATION_REQUIRED`(MANAGER만), `APPROVAL_REQUIRED`(MANAGER만), `RUN_END`, `RUN_FAILED`. 공통 data 필드는 `task_id`, `step`, `at`이다. 이슈·견적 상세는 이벤트에 없으므로 분석 API를 다시 조회한다.
+SSE 이벤트: `STEP_START`/`STEP_END`, `TOOL_START`/`TOOL_END`, `TOKEN`, `CLARIFICATION_REQUIRED`(MANAGER만), `SAVE_APPROVAL_REQUIRED`(MANAGER만), `APPROVAL_REQUIRED`(MANAGER만), `RUN_END`, `RUN_FAILED`. 공통 data 필드는 `task_id`, `step`, `at`이다. 이슈·견적 상세는 이벤트에 없으므로 분석 API를 다시 조회한다.
 
 ### 내부용 `/internal/**` (`X-Internal-Api-Key`, Agent·MCP 전용)
 
@@ -93,13 +94,13 @@ SSE 이벤트: `STEP_START`/`STEP_END`, `TOOL_START`/`TOOL_END`, `TOKEN`, `CLARI
 | GET | `/internal/rfqs/{rfqNumber}` | RFQ 메타 정보와 추출 컬럼 |
 | GET | `/internal/rfqs/{rfqNumber}/content` | RFQ 원문(`text/markdown`) |
 | PATCH | `/internal/rfqs/{rfqNumber}` | SG1 추출 값 저장. 전달한 필드만 갱신. status는 `RECEIVED → IN_REVIEW → QUOTED` 순서만 허용 |
-| PUT | `/internal/rfq-reviews` | 분석 결과 upsert. `(rfq_number, thread_id)` 기준, 전달한 섹션만 갱신(멱등) |
+| PUT | `/internal/rfq-reviews` | 분석 결과 upsert. `(rfq_number, thread_id)` 기준, 전달한 섹션만 갱신(멱등). `issues`, `contract_risks`, `alternatives`의 각 항목에 `evidence: [{chunk_id, section, excerpt}]`를 선택적으로 포함 가능 |
 | POST | `/internal/quotes` | 견적 초안 생성(201). `quote_id`는 서버가 `Q-YYYY-MMDD-NNN`으로 생성. 분석 결과가 없으면 404 |
 | PATCH | `/internal/quotes/{quoteId}` | `DRAFT`일 때만 `checks`, `conditions` 갱신. 아니면 409 |
 | POST | `/internal/quotes/{quoteId}/register` | `APPROVED` 견적만 `REGISTERED`로 등록(멱등). 신규 201, 이미 등록 200, 미승인 409 |
 | POST | `/internal/tasks/{taskId}/events` | Agent 진행 이벤트 전달(202). `type`, `step`, `message`, `trace_url`, `data` |
 
-작업 상태는 이벤트로 전이한다: `CLARIFICATION_REQUIRED → NEEDS_CLARIFICATION`, `APPROVAL_REQUIRED → WAITING_APPROVAL`, `RUN_END → DONE`, `RUN_FAILED → FAILED`.
+작업 상태는 이벤트로 전이한다: `CLARIFICATION_REQUIRED → NEEDS_CLARIFICATION`, `SAVE_APPROVAL_REQUIRED → WAITING_SAVE_APPROVAL`, `APPROVAL_REQUIRED → WAITING_APPROVAL`, `RUN_END → DONE`, `RUN_FAILED → FAILED`.
 
 ### 오류 응답
 
@@ -168,6 +169,7 @@ docker exec -it supplysync-postgres psql -U supplysync_app -d supplysync
 | [V3__review_plan_and_quote_details.sql](src/main/resources/db/migration/V3__review_plan_and_quote_details.sql) | `final_plan`, `issue_date`, `details` 추가 |
 | [V4__quote_revision_and_task_outcome.sql](src/main/resources/db/migration/V4__quote_revision_and_task_outcome.sql) | 견적 revision·수정 요청과 작업 종료 결과 |
 | [V5__analysis_outbox.sql](src/main/resources/db/migration/V5__analysis_outbox.sql) | RabbitMQ 발행 복구용 outbox |
+| [V6__save_approval_status.sql](src/main/resources/db/migration/V6__save_approval_status.sql) | SG3 저장 승인 대기 상태(`WAITING_SAVE_APPROVAL`) |
 
 ## 코드 구조
 

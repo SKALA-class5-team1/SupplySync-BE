@@ -90,10 +90,13 @@ public class AnalysisRequestConsumer {
                 String.class, payload.taskId());
         if ("DONE".equals(status) || "FAILED".equals(status)) return;
         try {
-            if (payload.kind() == AnalysisResumePayload.Kind.CLARIFICATION) {
-                retry(() -> agent.resumeSync(payload.taskId(), payload.threadId(), "CLARIFICATION", payload.decision()));
-            } else {
-                retry(() -> agent.resumeApprovalSync(payload.threadId(), payload.userId(), payload.decision()));
+            switch (payload.kind()) {
+                case CLARIFICATION ->
+                        retry(() -> agent.resumeSync(payload.taskId(), payload.threadId(), "CLARIFICATION", payload.decision()));
+                case SAVE_APPROVED, SAVE_REJECTED ->
+                        retry(() -> agent.resumeSaveApprovalSync(payload.threadId(), payload.decision()));
+                default -> retry(() -> agent.resumeApprovalSync(payload.threadId(), payload.userId(),
+                        payload.quoteId(), payload.decision()));
             }
         } catch (RuntimeException e) {
             jdbc.update("update ai_tasks set status='FAILED',failure_reason=?,completed_at=now(),updated_at=now() "

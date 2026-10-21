@@ -48,9 +48,9 @@ class DatasetMigrationTests {
         var result = Flyway.configure().dataSource(ds).locations("classpath:db/migration")
                 .baselineOnMigrate(true).baselineVersion("0").load().migrate();
         assertThat(result.success).isTrue();
-        assertThat(result.migrationsExecuted).isEqualTo(3);
+        assertThat(result.migrationsExecuted).isEqualTo(4);
         assertThat(jdbc.queryForList("select version from flyway_schema_history where success order by installed_rank",
-                String.class)).containsExactly("0", "2", "3", "4", "5");
+                String.class)).containsExactly("0", "2", "3", "4", "5", "6");
         assertThat(jdbc.queryForObject("select revision from quotes where quote_id='Q-2026-1019-009'", Integer.class))
                 .isEqualTo(1);
         assertThat(jdbc.queryForList("""

@@ -72,6 +72,7 @@ public class TaskWorkflowService {
             throw conflict("완료된 작업에는 이벤트를 보낼 수 없습니다.");
         TaskStatus next = switch (event.type()) {
             case CLARIFICATION_REQUIRED -> TaskStatus.NEEDS_CLARIFICATION;
+            case SAVE_APPROVAL_REQUIRED -> TaskStatus.WAITING_SAVE_APPROVAL;
             case APPROVAL_REQUIRED -> TaskStatus.WAITING_APPROVAL;
             case DONE, RUN_END -> TaskStatus.DONE;
             case FAILED, RUN_FAILED -> TaskStatus.FAILED;
@@ -102,6 +103,22 @@ public class TaskWorkflowService {
         if (updated == 0) throw missing(id);
         dispatch.clarification(id, threadId, managerUserId, request.assumptions());
         return new TaskDto.ConfirmationAccepted(id, TaskStatus.RUNNING);
+    }
+
+    @Transactional
+    public TaskDto.SaveApprovalAccepted saveApprove(UUID id, TaskDto.SaveApprovalRequest request) {
+        long managerUserId = current.requireManagerId();
+        var task = status(id);
+        if (task.status() != TaskStatus.WAITING_SAVE_APPROVAL) throw conflict("저장 승인 대기 상태가 아닙니다.");
+        boolean approved = request.approved();
+        if (!approved && (request.reason() == null || request.reason().isBlank()))
+            throw new ApiException(ErrorCode.VALIDATION_ERROR, "저장을 거부하려면 reason이 필요합니다.");
+        String threadId = thread(id);
+        if (jdbc.update("update ai_tasks set status='RUNNING',current_step='QUOTE',updated_at=now() "
+                + "where task_id=? and status='WAITING_SAVE_APPROVAL'", id) == 0)
+            throw conflict("이미 처리된 저장 승인입니다.");
+        dispatch.saveApproval(id, threadId, managerUserId, approved, approved ? null : request.reason());
+        return new TaskDto.SaveApprovalAccepted(id, approved, TaskStatus.RUNNING);
     }
 
     @Transactional
@@ -138,7 +155,7 @@ public class TaskWorkflowService {
             decision.put("reason", request.reason());
         }
         if (request.decision() == ApprovalDecision.REVISE) decision.put("changes", Map.of());
-        dispatch.approval(id, threadId, managerUserId, decision);
+        dispatch.approval(id, threadId, managerUserId, latest, decision);
         return new TaskDto.ApprovalAccepted(id, latest, request.decision(), next);
     }
 

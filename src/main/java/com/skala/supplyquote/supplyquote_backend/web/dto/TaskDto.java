@@ -55,6 +55,19 @@ public final class TaskDto {
             @Size(max = 1000) @Schema(description = "REJECTED/REVISE 시 필수 사유", example = "보증 조건 문구 수정") String reason) {
     }
 
+    @Schema(description = "SG3 저장 승인 요청 (MANAGER 전용). 견적을 저장하기 전에 담당자가 진행 여부를 정한다.")
+    public record SaveApprovalRequest(
+            @NotNull @Schema(example = "true") Boolean approved,
+            @Size(max = 1000) @Schema(description = "approved=false일 때 필수 사유", example = "마진 재검토") String reason) {
+    }
+
+    @Schema(description = "SG3 저장 승인 접수 결과. 이후 Agent가 같은 thread로 재개한다.")
+    public record SaveApprovalAccepted(
+            UUID taskId,
+            Boolean approved,
+            @Schema(example = "RUNNING") TaskStatus status) {
+    }
+
     @Schema(description = "승인/종료 반려/수정 접수 결과. 이후 Agent가 비동기로 처리한다.")
     public record ApprovalAccepted(
             UUID taskId,

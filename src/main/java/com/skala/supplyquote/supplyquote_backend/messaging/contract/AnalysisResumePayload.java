@@ -12,6 +12,7 @@ import java.util.Map;
  * @param rfqId    rfqs.id
  * @param threadId LangGraph thread id
  * @param kind     무엇에 대한 재개인지
+ * @param quoteId  승인·반려·수정 재개 대상 견적(오래된 승인이 새 견적에 적용되는 것을 Agent가 막는 데 사용). 그 외에는 null
  */
 public record AnalysisResumePayload(
         UUID taskId,
@@ -19,7 +20,8 @@ public record AnalysisResumePayload(
         String threadId,
         Kind kind,
         Long userId,
-        Map<String, Object> decision) {
+        Map<String, Object> decision,
+        String quoteId) {
 
     public enum Kind {
         /** 요구 확인(가정 승인) 후 재개 */
@@ -29,6 +31,10 @@ public record AnalysisResumePayload(
         /** 종료 반려 */
         REJECTED,
         /** 견적 수정 후 SG3 재작성 */
-        REVISE
+        REVISE,
+        /** SG3 저장 승인 후 재개 */
+        SAVE_APPROVED,
+        /** SG3 저장 거부 후 재개 */
+        SAVE_REJECTED
     }
 }

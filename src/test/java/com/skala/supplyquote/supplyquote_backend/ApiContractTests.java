@@ -358,6 +358,30 @@ class ApiContractTests {
 
     @Test
     @Transactional
+    void reviewEvidenceSurvivesUpsertAndManagerRead() throws Exception {
+        mvc.perform(put("/internal/rfq-reviews").contentType(MediaType.APPLICATION_JSON).content("""
+                {"rfq_number":"HB-EV7-EWP-001","thread_id":"task-evidence","status":"WAITING",
+                 "issues":[{"id":"ISS-01","evidence":[{"chunk_id":"dsn-002","section":"2.1","excerpt":"유량 기준"}]}],
+                 "contract_risks":[{"item":"보증 기간","evidence":[{"chunk_id":"pol-003","section":"제12조","excerpt":"보증 기준"}]}],
+                 "alternatives":[{"type":"SUBSTITUTE_PART","evidence":[{"chunk_id":"alt-002","section":"대체품","excerpt":"적용 가능"}]}]}
+                """))
+                .andExpect(status().isOk());
+        mvc.perform(put("/internal/rfq-reviews").contentType(MediaType.APPLICATION_JSON).content("""
+                {"rfq_number":"HB-EV7-EWP-001","thread_id":"task-evidence","status":"DONE"}
+                """))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/rfqs/1/analysis"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.review.status").value("DONE"))
+                .andExpect(jsonPath("$.review.issues[0].evidence[0].chunk_id").value("dsn-002"))
+                .andExpect(jsonPath("$.review.issues[0].evidence[0].section").value("2.1"))
+                .andExpect(jsonPath("$.review.issues[0].evidence[0].excerpt").value("유량 기준"))
+                .andExpect(jsonPath("$.review.contract_risks[0].evidence[0].chunk_id").value("pol-003"))
+                .andExpect(jsonPath("$.review.alternatives[0].evidence[0].chunk_id").value("alt-002"));
+    }
+
+    @Test
+    @Transactional
     void quoteDraftUsesDatasetQuoteDraftAndServerGeneratesQuoteId() throws Exception {
         jdbc.update("insert into rfq_reviews(rfq_number,thread_id) values ('HB-EV7-EWP-001','task-1')");
         ObjectNode draft = (ObjectNode) fixture("6_sg3_quote.json").get("quote_draft").deepCopy();
@@ -570,12 +594,16 @@ class ApiContractTests {
         var paths = new java.util.concurrent.CopyOnWriteArrayList<String>();
         AtomicReference<String> receivedKey = new AtomicReference<>();
         AtomicReference<String> approvalBody = new AtomicReference<>();
-        CountDownLatch calls = new CountDownLatch(2);
+        var resumeBodies = new java.util.concurrent.CopyOnWriteArrayList<String>();
+        CountDownLatch calls = new CountDownLatch(3);
         server.createContext("/", exchange -> {
             paths.add(exchange.getRequestURI().getPath());
             receivedKey.set(exchange.getRequestHeaders().getFirst("X-Internal-Api-Key"));
             String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-            if (exchange.getRequestURI().getPath().endsWith("/resume")) approvalBody.set(body);
+            if (exchange.getRequestURI().getPath().endsWith("/resume")) {
+                approvalBody.set(body);
+                resumeBodies.add(body);
+            }
             exchange.sendResponseHeaders(202, -1);
             exchange.close();
             calls.countDown();
@@ -588,12 +616,20 @@ class ApiContractTests {
         try {
             AgentGateway gateway = new AgentGateway(jdbc, "http://127.0.0.1:" + server.getAddress().getPort(), "test-internal-key");
             gateway.start(taskId, 1L, "HB-EV7-EWP-001", threadId, UUID.randomUUID());
-            gateway.resumeApproval(taskId, threadId, 2L,
+            gateway.resumeApproval(taskId, threadId, 2L, "Q-2026-1019-001",
                     Map.of("result", "REVISE", "reason", "조건 수정", "changes", Map.of()));
+            gateway.resumeSaveApproval(taskId, threadId, Map.of("approved", false, "reason", "마진 재검토"));
             org.assertj.core.api.Assertions.assertThat(calls.await(5, TimeUnit.SECONDS)).isTrue();
             org.assertj.core.api.Assertions.assertThat(paths).contains("/runs", "/runs/" + threadId + "/resume");
             org.assertj.core.api.Assertions.assertThat(receivedKey.get()).isEqualTo("test-internal-key");
-            JsonNode resume = json.readTree(approvalBody.get());
+            JsonNode resume = resumeBodies.stream().map(json::readTree)
+                    .filter(node -> node.has("step")).findFirst().orElseThrow();
+            JsonNode saveResume = resumeBodies.stream().map(json::readTree)
+                    .filter(node -> node.has("approved")).findFirst().orElseThrow();
+            org.assertj.core.api.Assertions.assertThat(saveResume.get("approved").asBoolean()).isFalse();
+            org.assertj.core.api.Assertions.assertThat(saveResume.get("reason").asString()).isEqualTo("마진 재검토");
+            org.assertj.core.api.Assertions.assertThat(saveResume.has("step")).isFalse();
+            org.assertj.core.api.Assertions.assertThat(resume.get("quoteId").asString()).isEqualTo("Q-2026-1019-001");
             org.assertj.core.api.Assertions.assertThat(resume.get("step").asString()).isEqualTo("SG4.request_approval");
             org.assertj.core.api.Assertions.assertThat(resume.get("userId").asLong()).isEqualTo(2L);
             org.assertj.core.api.Assertions.assertThat(resume.get("decision").get("result").asString()).isEqualTo("REVISE");
@@ -636,13 +672,46 @@ class ApiContractTests {
                 "select count(*) from processed_messages", Integer.class)).isEqualTo(1);
 
         Map<String, Object> decision = Map.of("result", "REVISE", "reason", "조건 수정", "changes", Map.of());
-        dispatch.approval(taskId, thread, 2L, decision);
+        dispatch.approval(taskId, thread, 2L, "Q-2026-1019-001", decision);
         String resumeBody = jdbc.queryForObject("select body::text from analysis_outbox where type='analysis.resume'",
                 String.class);
         MessageProperties resumeProperties = new MessageProperties();
         resumeProperties.setReceivedRoutingKey("analysis.resume");
         consumer.receive(new Message(resumeBody.getBytes(StandardCharsets.UTF_8), resumeProperties));
-        org.mockito.Mockito.verify(gateway).resumeApprovalSync(thread, 2L, decision);
+        org.mockito.Mockito.verify(gateway).resumeApprovalSync(thread, 2L, "Q-2026-1019-001", decision);
+
+        dispatch.saveApproval(taskId, thread, 2L, true, null);
+        String saveBody = jdbc.queryForObject("select body::text from analysis_outbox "
+                + "where body->'payload'->>'kind'='SAVE_APPROVED'", String.class);
+        consumer.receive(new Message(saveBody.getBytes(StandardCharsets.UTF_8), resumeProperties));
+        org.mockito.Mockito.verify(gateway).resumeSaveApprovalSync(thread, Map.of("approved", true));
+    }
+
+    @Test
+    @Transactional
+    void saveApprovalWaitsBeforeQuoteIsStoredAndResumesSg3() throws Exception {
+        seedTask("RUNNING");
+        mvc.perform(post("/api/ai/tasks/" + TASK + "/save-approval").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"approved\":true}"))
+                .andExpect(status().isConflict());
+        mvc.perform(post("/internal/tasks/" + TASK + "/events").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"type\":\"SAVE_APPROVAL_REQUIRED\",\"step\":\"FINAL_REVIEW\"}"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("WAITING_SAVE_APPROVAL"));
+        mvc.perform(post("/api/ai/tasks/" + TASK + "/save-approval").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"approved\":false}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/ai/tasks/" + TASK + "/save-approval").contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/ai/tasks/" + TASK + "/save-approval").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"approved\":false,\"reason\":\"마진 재검토\"}"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.approved").value(false))
+                .andExpect(jsonPath("$.status").value("RUNNING"));
+        mvc.perform(post("/api/ai/tasks/" + TASK + "/save-approval").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"approved\":true}"))
+                .andExpect(status().isConflict());
     }
 
     private void seedTask(String status) {

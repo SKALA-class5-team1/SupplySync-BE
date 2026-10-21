@@ -61,6 +61,7 @@ public class AiTaskController {
                     | `TOOL_START`, `TOOL_END` | MCP 도구 실행 전후 | "재고 조회 중…" |
                     | `TOKEN` | 설명·제안서 생성 중 | 이어서 표시 |
                     | `CLARIFICATION_REQUIRED` | HIGH 이슈로 멈춤. **MANAGER에게만 전송** | `/api/rfqs/{id}/analysis`를 다시 조회해 요구 확인 카드 표시 |
+                    | `SAVE_APPROVAL_REQUIRED` | SG3가 견적을 저장하기 직전 대기. **MANAGER에게만 전송** | 저장 승인 카드 표시 (`POST .../save-approval`) |
                     | `APPROVAL_REQUIRED` | 견적 초안과 최종 검토 완료. **MANAGER에게만 전송** | `/api/rfqs/{id}/analysis`를 다시 조회해 승인 카드 표시 |
                     | `RUN_END`, `RUN_FAILED` | Agent 작업 종료 | 스트림 닫고 목록 갱신 |
 
@@ -88,6 +89,24 @@ public class AiTaskController {
     public TaskDto.ConfirmationAccepted confirm(@PathVariable UUID taskId,
                                                 @Valid @RequestBody TaskDto.ConfirmationRequest request) {
         return tasks.confirm(taskId, request);
+    }
+
+    @Operation(summary = "견적 저장 승인 (SG3)",
+            description = "작업이 WAITING_SAVE_APPROVAL(Agent의 SAVE_APPROVAL_REQUIRED)일 때 SG3의 견적 저장 여부를 정한다. "
+                    + "approved=false면 reason이 필수이고, Agent에는 {\"approved\": false, \"reason\": \"...\"}로 재개한다. "
+                    + "저장 승인 대기 상태가 아니면 409.")
+    @ApiResponse(responseCode = "202", description = "접수됨")
+    @ApiResponse(responseCode = "400", description = "거부인데 reason이 없음",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "403", description = "MANAGER가 아님",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "409", description = "저장 승인 대기 상태가 아님",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @PostMapping("/{taskId}/save-approval")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public TaskDto.SaveApprovalAccepted saveApprove(@PathVariable UUID taskId,
+                                                    @Valid @RequestBody TaskDto.SaveApprovalRequest request) {
+        return tasks.saveApprove(taskId, request);
     }
 
     @Operation(summary = "견적 승인/종료 반려/수정 요청",

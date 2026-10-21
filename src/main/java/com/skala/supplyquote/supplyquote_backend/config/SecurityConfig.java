@@ -59,7 +59,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/rfqs").hasRole("CUSTOMER")
                         .requestMatchers(HttpMethod.GET, "/api/rfqs/*/analysis").hasRole("MANAGER")
-                        .requestMatchers(HttpMethod.POST, "/api/ai/tasks/*/confirmation", "/api/ai/tasks/*/approval")
+                        .requestMatchers(HttpMethod.POST, "/api/ai/tasks/*/confirmation", "/api/ai/tasks/*/save-approval",
+                                "/api/ai/tasks/*/approval")
                         .hasRole("MANAGER")
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().denyAll())
