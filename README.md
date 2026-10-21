@@ -46,8 +46,74 @@ SPRING_PROFILES_ACTIVE=demo ./gradlew bootRun
 - 카탈로그·RFQ 조회, 업로드·작업 생성, 분석 결과 upsert, 견적 생성·승인·등록, 작업 상태·SSE는 DB와 파일에 연결돼 있다. 로그인은 BCrypt 검증과 JWT 발급으로 동작한다.
 - 분석 메시지 큐는 `ANALYSIS_MQ_ENABLED=true`로 켠다. 기본값 false에서는 기존 HTTP 어댑터를 사용한다. 큐를 켜려면 `AGENT_BASE_URL`과 RabbitMQ 접속 정보가 필요하다. 실제 Agent core의 요청·응답 계약과 통합 검증은 남아 있다.
 - `/api/**`는 로그인 JWT가 필요하다. 고객 업로드와 담당자 확인·승인은 로그인한 사용자 ID로 기록한다. `GET /api/rfqs?mine=true`와 고객 회사별 조회 제한을 적용한다.
-- `/internal/**`은 기존 `X-Internal-Api-Key`로 인증한다. Agent에 사용자 JWT를 보내지 않는다. 프론트 연동 계약은 [인증 연동 안내](docs/FRONTEND_AUTH_HANDOFF.md)를 참고한다.
+- `/internal/**`은 기존 `X-Internal-Api-Key`로 인증한다. Agent에 사용자 JWT를 보내지 않는다. 프론트 연동 계약은 [Frontend 문서](docs/FRONTEND.md)를 참고한다.
 - 오류 응답은 `{code, message, details, timestamp}` 하나로 통일한다.
+
+## API 명세
+
+전체 요청·응답 스키마는 실행 중인 서버의 Swagger UI(`/swagger-ui.html`)와 OpenAPI(`/v3/api-docs`)가 기준이다. 아래는 엔드포인트 요약이다.
+
+### 화면용 `/api/**` (Bearer JWT)
+
+| 메서드 | 경로 | 권한 | 설명 |
+| --- | --- | --- | --- |
+| POST | `/api/auth/login` | 공개 | `login_id`, `password`로 로그인. `access_token`, `token_type`, `expires_in`, `user` 반환 |
+| GET | `/api/me` | 로그인 | 토큰의 사용자 정보 |
+| POST | `/api/rfqs` | CUSTOMER | RFQ 접수. `multipart/form-data`(`file`=.md, `rfq_number`). 202, 같은 번호는 409 |
+| GET | `/api/rfqs?mine=false` | 로그인 | RFQ 목록(최신순). 고객은 소속 회사 것만, `mine=true`는 본인이 올린 것만 |
+| GET | `/api/rfqs/{rfqId}` | 로그인 | RFQ 상세. 다른 회사 RFQ는 404 |
+| GET | `/api/rfqs/{rfqId}/analysis` | MANAGER | 분석 결과 + 원가·마진 포함 견적 이력 |
+| GET | `/api/rfqs/{rfqId}/quotes` | 로그인 | 고객 공개 견적 목록. `REGISTERED`만, 원가·마진 제외 |
+| GET | `/api/ai/tasks/{taskId}` | 로그인 | 작업 상태 조회 (SSE 끊김 후 복구용) |
+| GET | `/api/ai/tasks/{taskId}/stream` | 로그인 | 진행 이벤트 SSE (`text/event-stream`). 고객에게는 단계·시간만 전달 |
+| POST | `/api/ai/tasks/{taskId}/confirmation` | MANAGER | 요구 확인. 본문 `{"assumptions":[{"field":"spec.flow","value":"22 L/min"}]}`. 202, 대기 상태가 아니면 409 |
+| POST | `/api/ai/tasks/{taskId}/approval` | MANAGER | 본문 `{"quote_id":"Q-2026-1019-001","decision":"APPROVED\|REJECTED\|REVISE","reason":"..."}`. `REJECTED`·`REVISE`는 `reason` 필수, `REVISE`는 최대 3회. 202 |
+
+로그인 예시:
+
+```bash
+curl -X POST http://localhost:8080/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"login_id":"ds_sales01","password":"demo1234"}'
+# 이후 요청: -H "Authorization: Bearer <access_token>"
+```
+
+SSE 이벤트: `STEP_START`/`STEP_END`, `TOOL_START`/`TOOL_END`, `TOKEN`, `CLARIFICATION_REQUIRED`(MANAGER만), `APPROVAL_REQUIRED`(MANAGER만), `RUN_END`, `RUN_FAILED`. 공통 data 필드는 `task_id`, `step`, `at`이다. 이슈·견적 상세는 이벤트에 없으므로 분석 API를 다시 조회한다.
+
+### 내부용 `/internal/**` (`X-Internal-Api-Key`, Agent·MCP 전용)
+
+| 메서드 | 경로 | 설명 |
+| --- | --- | --- |
+| GET | `/internal/models` | 표준 모델과 옵션 목록 |
+| GET | `/internal/models/{modelId}` | 표준 모델 조회 |
+| GET | `/internal/models/{modelId}/bom?options=OPT-HT,OPT-IP9K` | 옵션 적용 BOM. 붙일 수 없는 옵션은 400 |
+| GET | `/internal/parts/{partId}` | 부품 마스터(공급사, 원가, 조달기간) |
+| GET | `/internal/parts/{partId}/inventory` | 재고·입고 예정 |
+| GET | `/internal/parts/{partId}/substitutes` | 대체 부품 후보 |
+| GET | `/internal/rfqs/{rfqNumber}` | RFQ 메타 정보와 추출 컬럼 |
+| GET | `/internal/rfqs/{rfqNumber}/content` | RFQ 원문(`text/markdown`) |
+| PATCH | `/internal/rfqs/{rfqNumber}` | SG1 추출 값 저장. 전달한 필드만 갱신. status는 `RECEIVED → IN_REVIEW → QUOTED` 순서만 허용 |
+| PUT | `/internal/rfq-reviews` | 분석 결과 upsert. `(rfq_number, thread_id)` 기준, 전달한 섹션만 갱신(멱등) |
+| POST | `/internal/quotes` | 견적 초안 생성(201). `quote_id`는 서버가 `Q-YYYY-MMDD-NNN`으로 생성. 분석 결과가 없으면 404 |
+| PATCH | `/internal/quotes/{quoteId}` | `DRAFT`일 때만 `checks`, `conditions` 갱신. 아니면 409 |
+| POST | `/internal/quotes/{quoteId}/register` | `APPROVED` 견적만 `REGISTERED`로 등록(멱등). 신규 201, 이미 등록 200, 미승인 409 |
+| POST | `/internal/tasks/{taskId}/events` | Agent 진행 이벤트 전달(202). `type`, `step`, `message`, `trace_url`, `data` |
+
+작업 상태는 이벤트로 전이한다: `CLARIFICATION_REQUIRED → NEEDS_CLARIFICATION`, `APPROVAL_REQUIRED → WAITING_APPROVAL`, `RUN_END → DONE`, `RUN_FAILED → FAILED`.
+
+### 오류 응답
+
+모든 오류는 `{code, message, details, timestamp}` 형식이다.
+
+| code | HTTP | 의미 |
+| --- | --- | --- |
+| `VALIDATION_ERROR`, `MALFORMED_REQUEST` | 400 | 입력 검증 실패, 요청 형식 오류 |
+| `UNAUTHORIZED` | 401 | 토큰 없음·만료, 로그인 실패 |
+| `FORBIDDEN` | 403 | 역할 권한 없음 |
+| `NOT_FOUND` | 404 | 없는 리소스 (다른 회사 리소스 포함) |
+| `CONFLICT_STATE` | 409 | 상태 불일치, 이미 처리됨 |
+| `AGENT_UNAVAILABLE` | 503 | Agent 호출 불가 |
+| `INTERNAL_ERROR` | 500 | 서버 오류 |
 
 ## 데모 데이터 (demo 프로파일)
 
@@ -94,12 +160,10 @@ docker exec -it supplysync-postgres psql -U supplysync_app -d supplysync
 | 문서 | 내용 |
 | --- | --- |
 | Swagger UI | 화면용 API(`/api/**`), 내부 업무 API(`/internal/**`) 계약 |
-| [docs/FRONTEND_AUTH_HANDOFF.md](docs/FRONTEND_AUTH_HANDOFF.md) | JWT 로그인·권한·SSE 프론트 연동 |
-| [docs/DESIGN.md](docs/DESIGN.md) | **백엔드 설계서 v2**: 데이터셋 반영, 해야 할 일, MVC 설계, 다이어그램 15종 |
-| [docs/diagrams/](docs/diagrams/) | 다이어그램 원본(`.mmd`)과 PNG |
-| [docs/ERD.md](docs/ERD.md) | v2 데이터셋 스키마와 v3~v5 후속 확장 |
-| [docs/MESSAGING.md](docs/MESSAGING.md) | RabbitMQ 메시지 규약 |
-| [docs/RAG_MCP_INTEGRATION.md](docs/RAG_MCP_INTEGRATION.md) | Supabase·RAG MCP·RabbitMQ 연결 및 담당 경계 |
+| [docs/BACKEND.md](docs/BACKEND.md) | 백엔드 업무 흐름·DB·RabbitMQ 규약·남은 검증 |
+| [docs/AGENT.md](docs/AGENT.md) | Agent 실행·재개·결과 계약과 RAG 경계 |
+| [docs/FRONTEND.md](docs/FRONTEND.md) | JWT·화면 권한·승인·SSE 계약 |
+| [docs/diagrams/](docs/diagrams/) | 다이어그램 원본(`.mmd`)과 PNG, 적용 범위 안내 |
 | [V2__dataset_v2_2.sql](src/main/resources/db/migration/V2__dataset_v2_2.sql) | 확정 데이터셋 v2.2 기반 스키마 |
 | [V3__review_plan_and_quote_details.sql](src/main/resources/db/migration/V3__review_plan_and_quote_details.sql) | `final_plan`, `issue_date`, `details` 추가 |
 | [V4__quote_revision_and_task_outcome.sql](src/main/resources/db/migration/V4__quote_revision_and_task_outcome.sql) | 견적 revision·수정 요청과 작업 종료 결과 |
@@ -124,6 +188,6 @@ com.skala.supplyquote.supplyquote_backend
 
 - DB 스키마는 Flyway(`db/migration`)로만 바꾼다. 이미 푸시된 `V*.sql`은 수정하지 않고 새 파일을 추가한다.
 - 카탈로그·재고·결과 테이블은 **데이터셋의 컬럼 정의를 그대로** 따른다 (`model_id`, `option_code` 등). 바꿀 때는 Agent 팀·데이터셋 담당과 먼저 맞춘다.
-- 업무 데이터 쓰기는 Spring이 담당한다. 새 문서의 임베딩·벡터 적재는 Agent 팀의 RAG 서비스에 위임할 예정이며, Spring은 문서 수신과 전달 경계를 담당한다. 적재 API·DB 권한은 [연동 구조](docs/RAG_MCP_INTEGRATION.md)에서 확정 항목으로 관리한다.
+- 업무 데이터 쓰기는 Spring이 담당한다. 새 문서의 임베딩·벡터 적재는 후속 단계이며 Agent 팀의 RAG 서비스에 위임할 예정이다. 적재 API·DB 권한은 [Agent 연동 계약](docs/AGENT.md#rag-검색과-후속-단계)의 미확정 항목이다.
 - `/internal/**`는 `X-Internal-Api-Key: ${INTERNAL_API_KEY}`를 요구한다. Spring → Agent HTTP에도 같은 헤더를 보낸다. 키가 비어 있으면 내부 API 요청을 거부한다. 배포 네트워크 접근 제한도 별도로 설정한다.
 - 데모 데이터는 Flyway가 아니라 `DemoDataLoader`가 demo 프로파일에서만 적재한다.
