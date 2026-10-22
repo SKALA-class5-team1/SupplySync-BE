@@ -16,6 +16,7 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -26,6 +27,8 @@ import org.springframework.web.bind.annotation.RestController;
 @Import({TestcontainersConfiguration.class, ErrorLoggingTests.BoomController.class})
 @ActiveProfiles({"test", "demo"})
 @ExtendWith(OutputCaptureExtension.class)
+// 로컬 .env의 FRONTEND_ORIGINS와 무관하게 http://localhost:5173이 허용 목록에 없는 상황을 만든다
+@TestPropertySource(properties = "app.cors.allowed-origins=http://allowed.example")
 class ErrorLoggingTests {
     @RestController
     static class BoomController {

@@ -1,5 +1,9 @@
 # 테스트용 보충 설정. DB는 Testcontainers가 @ServiceConnection으로 주입한다.
 spring:
+  datasource:
+    hikari:
+      # 테스트는 스케줄러·소비자가 동시에 DB를 써서 운영 기본값보다 넉넉히 둔다
+      maximum-pool-size: 10
   rabbitmq:
     password: test
 app:

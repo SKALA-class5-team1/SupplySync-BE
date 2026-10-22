@@ -3,10 +3,116 @@
 공급망 연계 RFQ·재고·견적 대응 Agent의 Spring Boot 백엔드. 구매요청 등록은 이번 범위에서 제외한다.
 Java 21, Spring Boot 4.1.1, Supabase PostgreSQL + pgvector, RabbitMQ, Flyway, springdoc(Swagger).
 
+## 개요
+
+고객이 RFQ(견적 요청서)를 올리면 Agent(FastAPI + LangGraph, SG1~SG4)가 분석하고, 담당자가 확인·승인한 뒤 견적이 등록된다. 백엔드는 이 과정의 **업무 데이터와 작업 상태를 책임지는 중심 서버**다.
+
+| 구성 요소 | 역할 | 백엔드와의 통신 |
+| --- | --- | --- |
+| 프론트엔드 | 고객 업로드, 담당자 확인·승인 화면 | `/api/**` (JWT), 진행 상황은 SSE |
+| Agent (FastAPI + LangGraph) | RFQ 분석·견적 작성 | 백엔드 → Agent: RabbitMQ 경유 HTTP(`POST /runs`, `/runs/{threadId}/resume`) / Agent → 백엔드: HTTP 진행 이벤트(callback) |
+| business MCP / RAG MCP | Agent가 쓰는 업무 데이터·문서 검색 도구 | `/internal/**` (`X-Internal-Api-Key`) |
+| RabbitMQ | 백엔드 → Agent 명령 전달(분석 시작·재개) | outbox 발행 → `analysis.request.q` → Spring 소비자 |
+| Supabase PostgreSQL | 업무 데이터, 작업 상태, outbox, 문서 청크(pgvector) | JDBC |
+
+```
+고객/담당자 ─ /api/** ─▶ Spring ──▶ DB(+outbox)
+                          │  outbox 릴레이 ─▶ RabbitMQ ─▶ Spring 소비자 ─▶ Agent POST /runs
+                          │◀── POST /internal/tasks/{id}/events (진행 이벤트, Agent → 백엔드)
+                          └── SSE ─▶ 프론트
+Agent ─ MCP 도구 ─▶ /internal/** (카탈로그·재고·RFQ 조회, 분석·견적 저장)
+```
+
+- Agent → 백엔드 방향은 항상 HTTP다. RabbitMQ는 백엔드 → Agent 명령에만 쓴다.
+- 담당자 확인(`CLARIFICATION_REQUIRED`)과 승인(`APPROVAL_REQUIRED`)은 진행 이벤트의 한 종류다. 이벤트를 받으면 작업이 사람 입력 대기 상태가 되고, 담당자가 API로 답하면 백엔드가 Agent에 재개(resume) 명령을 보낸다.
+
+### 작업 상태 흐름
+
+```
+QUEUED → RUNNING → NEEDS_CLARIFICATION → RUNNING → WAITING_APPROVAL → REVALIDATING → REGISTERING → DONE
+                                        └ 어느 단계에서든 FAILED, 업무상 보류는 ON_HOLD
+```
+
+| 상태 | 의미 | 바뀌는 계기 |
+| --- | --- | --- |
+| `QUEUED` | 접수되어 Agent 호출 대기 | RFQ 업로드 |
+| `RUNNING` | Agent 실행 중 | 첫 진행 이벤트 |
+| `NEEDS_CLARIFICATION` | 담당자 확인 대기 | `CLARIFICATION_REQUIRED` |
+| `WAITING_APPROVAL` | 담당자 승인 대기 | `APPROVAL_REQUIRED` |
+| `REVALIDATING`, `REGISTERING` | 승인 후 재고 재검증, 견적 등록 | 담당자 승인 |
+| `DONE` | 종료(등록 또는 거절) | `RUN_END` (`data.outcome`: `REGISTERED`·`REJECTED`) |
+| `FAILED` | 실패 | `RUN_FAILED`, Agent 호출 실패·타임아웃, 멈춤 감시 |
+| `ON_HOLD` | 업무상 보류(대안 없음 등) | `RUN_ON_HOLD` |
+
+견적 상태는 `DRAFT → APPROVED → REGISTERED`이고 거절·수정 요청 시 `REJECTED`다. `REVISE`(수정 요청)는 최대 3회다.
+
+## 빠른 시작
+
+가장 빠른 로컬 실행 순서다. 자세한 내용은 아래 절을 본다.
+
+```bash
+cp .env.example .env                       # 비밀번호·JWT_SECRET_BASE64를 바꾼다
+docker compose up -d                       # PostgreSQL(pgvector) + RabbitMQ
+SPRING_PROFILES_ACTIVE=demo ./gradlew bootRun
+# http://localhost:8080/swagger-ui.html 에서 hb_buyer01 / demo1234 로 로그인해 확인
+```
+
+Agent 서버가 아직 없으면 `ANALYSIS_MQ_ENABLED=false`로 기동해 curl로 이벤트를 흉내 낼 수 있다([Agent 없이 이벤트 흐름 확인](#agent-없이-이벤트-흐름-확인-curl)).
+
+## 환경 변수
+
+`.env.example`을 복사해 `.env`로 쓴다. `.env`는 커밋하지 않고 비밀번호는 DM 등으로 따로 전달한다.
+
+| 변수 | 기본값 | 설명 |
+| --- | --- | --- |
+| `DB_HOST`, `DB_PORT`, `DB_NAME` | `localhost`, `5432`, `supplysync` | DB 접속 대상. Supabase는 Dashboard **Connect** 값 |
+| `DB_USER`, `DB_PASSWORD` | `supplysync_app`, `changeme` | 앱 계정 (Flyway 포함) |
+| `DB_SSLMODE`, `DB_SCHEMA` | `disable`, `public` | Supabase는 `require`, `public,extensions` |
+| `DB_POOL_MAX`, `DB_POOL_MIN_IDLE` | `3`, `1` | 앱 1개가 잡는 연결 수. Supabase 무료 풀러(`pool_size: 15`)는 여러 명이 쓰면 부족하므로 줄인다 |
+| `DB_APPLICATION_NAME` | `supplysync-be` | `pg_stat_activity`에서 누가 연결했는지 구분. 팀원마다 다르게 정한다 |
+| `RABBITMQ_HOST`, `RABBITMQ_AMQP_PORT`, `RABBITMQ_USER`, `RABBITMQ_PASSWORD` | `localhost`, `5672`, `supplysync`, `changeme` | RabbitMQ 접속 |
+| `INTERNAL_API_KEY` | `changeme-internal-key` | `/internal/**` 인증 키. 개발 외 환경에서는 난수로 교체 |
+| `AGENT_BASE_URL` | (빈 값) | Agent 서버 주소. 비어 있으면 MQ 모드에서 접수한 작업이 `FAILED`가 된다 |
+| `ANALYSIS_MQ_ENABLED` | `true` | 분석 요청·재개를 RabbitMQ로 보낸다. `false`는 개발용 직접 HTTP 호출 |
+| `ANALYSIS_MQ_CONSUMER_ENABLED` | `true` | Spring 소비자 사용 여부. Agent가 큐를 직접 소비하면 `false` |
+| `ANALYSIS_REQUEST_RETRIES` | `0` | Agent 호출 실패 시 재시도 횟수. 0이면 한 번만 호출하고 실패하면 `FAILED` |
+| `AGENT_READ_TIMEOUT_SECONDS` | `300` | Agent 응답 대기 시간. 초과하면 호출 실패 |
+| `WATCHDOG_ENABLED`, `WATCHDOG_QUEUED_MINUTES`, `WATCHDOG_ACTIVE_MINUTES` | `true`, `10`, `30` | 멈춘 작업 감시 |
+| `JWT_SECRET_BASE64`, `JWT_ISSUER`, `JWT_ACCESS_TOKEN_SECONDS` | (필수), `supplysync`, `3600` | JWT 서명 키(32바이트 이상 난수를 Base64로. `openssl rand -base64 32`), 발급자, 유효 시간 |
+| `FRONTEND_ORIGINS` | (빈 값) | 프론트 origin(쉼표 구분, 예 `http://localhost:5173`). 비어 있으면 브라우저의 다른 origin 요청이 모두 403 |
+| `RFQ_FILES_DIR` | `./rfq-files` | 업로드한 RFQ 원문 저장 위치 |
+| `SERVER_PORT` | `8080` | 서버 포트 |
+
+## 테스트
+
+```bash
+./gradlew test    # Docker 필요: Testcontainers가 pgvector PostgreSQL과 RabbitMQ를 띄운다
+```
+
+| 테스트 | 확인하는 것 |
+| --- | --- |
+| `ApiContractTests` | 화면용·내부용 API 계약, 상태 전이, 견적 revision, 멈춤 감시, Agent 호출 어댑터 |
+| `AnalysisMessagingIntegrationTests` | 실제 RabbitMQ와 가짜 Agent 서버로 outbox 발행 → 큐 → 소비 → 호출, 실패 시 DLQ |
+| `MessagingSwitchTests` | 발행·소비 스위치 조합 |
+| `ErrorLoggingTests` | 오류 로그 형식, CORS 거부 안내 |
+| `DatasetMigrationTests` | Flyway 마이그레이션과 데이터셋 시드 |
+
+## 문제 해결
+
+| 증상 | 원인과 확인 |
+| --- | --- |
+| 브라우저에서 모든 `/api/**`가 403 | CORS 거부일 가능성이 크다. `FRONTEND_ORIGINS`에 프론트 주소를 넣었는지 확인한다. 서버 로그에 `CORS 거부 가능성` 안내가 남는다 |
+| `Port 8080 was already in use` | 다른 프로세스가 사용 중. `lsof -i :8080`으로 확인하거나 `SERVER_PORT`를 바꾼다 |
+| `EMAXCONNSESSION ... pool_size: 15` | Supabase 연결 한도 초과. `DB_POOL_MAX`를 줄이고, `pg_stat_activity`의 `application_name`으로 연결 주인을 확인한다. 개발은 로컬 Docker DB를 권장한다 |
+| 접수한 작업이 바로 `FAILED` | `AGENT_BASE_URL`이 비어 있거나 Agent가 응답하지 않음. 로그와 `ai_tasks.failure_reason`을 확인한다 |
+| 작업이 `QUEUED`에서 안 움직임 | RabbitMQ가 꺼져 있거나 접속 정보가 틀림. `analysis_outbox`의 `published_at`이 비어 있고 `last_error`가 남아 있는지 확인한다 |
+| 이벤트 전송이 409 | 이미 `DONE`·`FAILED`가 된 작업이다 |
+| `Flyway` 체크섬 오류 | 이미 반영된 `V*.sql`을 수정했다. 새 파일을 추가한다 |
+
 ## Supabase PostgreSQL로 실행
 
 1. 새 Supabase 프로젝트에서 `vector` 확장을 `extensions` 스키마에 활성화한다. 이 마이그레이션은 확정 데이터셋 v2.2용 새 프로젝트에 적용한다.
-2. `.env.supabase.example`을 `.env`로 복사하고 Dashboard **Connect**의 host, port, database, user를 그대로 입력한다. 비밀번호도 로컬 `.env`에만 입력한다. Direct 연결은 IPv6 환경에서, IPv4 환경은 Session pooler를 사용한다.
+2. `.env.example`을 `.env`로 복사하고 Dashboard **Connect**의 host, port, database, user를 그대로 입력한다. 비밀번호도 로컬 `.env`에만 입력한다. Direct 연결은 IPv6 환경에서, IPv4 환경은 Session pooler를 사용한다.
 3. `docker compose up -d rabbitmq`로 RabbitMQ만 실행한다. `SPRING_PROFILES_ACTIVE=demo ./gradlew bootRun`으로 Flyway v2~v7 마이그레이션과 확정 데이터셋 시드를 적용한다. 시드가 필요 없다면 `./gradlew bootRun`을 실행한다.
 4. RAG MCP가 검색에 사용할 읽기 계정은 필요하면 Supabase에서 별도로 만든다. RAG 측이 새 문서 벡터를 직접 적재하는 경우에는 `rag_reader`의 SELECT 권한만으로는 부족하므로, Agent 팀과 적재 주체·계정을 확정한 뒤 `doc_chunks`에 한정된 권한을 설정한다.
 
